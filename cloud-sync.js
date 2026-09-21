@@ -1,0 +1,270 @@
+/* Sync roster rows to Supabase table (default: thata) via PostgREST. */
+(function (global) {
+  const COLS = [
+    ["عمود1", "id"],
+    ["الرقم_الوطني", "nationalId"],
+    ["الاسم الثلاثي", "fullName"],
+    ["اسم_الأم_الكامل", "motherName"],
+    ["التولد", "birthDate"],
+    ["محل_الولادة", "birthPlace"],
+    ["القيد", "registryPlaceNo"],
+    ["الفئة_الوظيفية", "category"],
+    ["مسمى العمل", "jobTitle"],
+    ["الاسم", "firstName"],
+    ["اسم_الأب", "fatherName"],
+    ["النسبة", "familyName"],
+    ["السوية_التنظيمية_الأولى", "orgLevel1"],
+    ["السوية_التنظيمية_الثالثة", "unit"],
+    ["الملاك الاصل", "originCadre"],
+    ["السوية_التنظيمية_الرابعة", "orgLevel4"],
+    ["الرقم_الشخصي", "personalNo"],
+    ["الرقم_الذاتي", "selfId"],
+    ["مثبت_أو_متعاقد", "contractType"],
+    ["الحالة", "status"],
+    ["الجنس", "gender"],
+    ["الوضع_العائلي", "maritalStatus"],
+    ["عدد_الزوجات", "wivesCount"],
+    ["عدد_الابناء", "childrenCount"],
+    ["المحافظة", "governorate"],
+    ["المنطقة_المدينة", "district"],
+    ["الناحية", "subdistrict"],
+    ["الحالة_الصحية", "healthStatus"],
+    ["تفصيل_الإصابة_أو_المرض", "healthDetail"],
+    ["تاريخ_الإصابة", "injuryDate"],
+    ["زمرة_الدم", "bloodType"],
+    ["السكن_الحالي _( المحافظة )", "residenceGov"],
+    ["السكن_الحالي _(المنطقة_المدينة )", "residencePlace"],
+    ["نوع_السكن", "housingType"],
+    ["مصدر_معلومات_السكن", "housingSource"],
+    ["رقم_الهاتف", "phone"],
+    ["نوع الشهادة", "certType"],
+    ["الكلية/ المعهد", "college"],
+    ["الاختصاص", "specialization"],
+    ["عام الحصول على الشهادة", "certYear"],
+    ["وجود الوثيقة", "hasDocument"],
+    ["المعدل بالنسبة المئوية", "gradePercent"],
+    ["الجامعة1", "university1"],
+    ["المرحلة", "studyStage"],
+    ["المؤهل_العلمي_المعين_على أساسه", "qualForAppointment"],
+    ["مستوى_التمكن_من_اللغة_الإنكليزية", "englishLevel"],
+    ["مستوى_التمكن_من_اللغة_التركية", "turkishLevel"],
+    ["لغات_آخرى", "otherLang"],
+    ["نمط_التعيين_أو_التعاقد", "appointmentMode"],
+    ["نمط العمل", "workMode"],
+    ["التخصص", "specialty"],
+    ["الرقم_الوظيفي", "jobNumber"],
+    ["تاريخ_التعيين", "appointmentDate"],
+    ["تاريخ_العمل_بالدولة", "stateWorkDate"],
+    ["حساب_شام_كاش", "shamCash"],
+    ["تاريخ_تعديل_الفئة", "categoryChangeDate"],
+    ["العمر (سنة)", "age"],
+    ["سنوات الخدمة", "serviceYears"],
+    ["المتبقي للتقاعد", "yearsToRetire"],
+  ];
+
+  function cfg() {
+    return {
+      url: (localStorage.getItem("formSY.cloud.url") || "").replace(/\/+$/, ""),
+      anon: (localStorage.getItem("formSY.cloud.anon") || "").trim(),
+      table: localStorage.getItem("formSY.cloud.table") || "thatea",
+    };
+  }
+
+  function rowFrom(rec) {
+    const row = {};
+    COLS.forEach(([col, key]) => {
+      const v = rec[key];
+      if (v != null && String(v) !== "") row[col] = String(v);
+    });
+    return row;
+  }
+
+  function recFrom(row) {
+    const rec = {};
+    COLS.forEach(([col, key]) => {
+      const v = row[col];
+      if (v != null && String(v) !== "") rec[key] = String(v);
+    });
+    return rec;
+  }
+
+  function headers(anon, extra) {
+    return Object.assign(
+      {
+        apikey: anon,
+        Authorization: "Bearer " + anon,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      extra || {}
+    );
+  }
+
+  function restUrl(c, path, query) {
+    const q = query ? "?" + query : "";
+    return c.url + "/rest/v1/" + encodeURIComponent(c.table) + path + q;
+  }
+
+  async function parseError(res) {
+    let msg = res.status + " " + res.statusText;
+    try {
+      const j = await res.json();
+      msg = j.message || j.error_description || j.hint || JSON.stringify(j);
+    } catch (e) {}
+    return msg;
+  }
+
+  async function pull() {
+    const c = cfg();
+    if (!c.url || !c.anon) return { ok: false, reason: "not-configured", rows: [] };
+    const res = await fetch(restUrl(c, "", "select=*"), { headers: headers(c.anon) });
+    if (!res.ok) return { ok: false, reason: await parseError(res), rows: [] };
+    const data = await res.json();
+    return { ok: true, rows: Array.isArray(data) ? data.map(recFrom) : [] };
+  }
+
+  async function pushRows(records) {
+    const c = cfg();
+    if (!c.url || !c.anon) return { ok: false, reason: "not-configured" };
+    const payload = (records || []).map(rowFrom).filter((r) => Object.keys(r).length);
+    if (!payload.length) return { ok: true, count: 0 };
+    let res = await fetch(
+      restUrl(c, "", "on_conflict=" + encodeURIComponent("الرقم_الوطني")),
+      {
+        method: "POST",
+        headers: headers(c.anon, {
+          Prefer: "resolution=merge-duplicates,return=minimal",
+        }),
+        body: JSON.stringify(payload),
+      }
+    );
+    if (res.ok) return { ok: true, count: payload.length };
+    const first = await parseError(res);
+    res = await fetch(restUrl(c, "", ""), {
+      method: "POST",
+      headers: headers(c.anon, { Prefer: "return=minimal" }),
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) return { ok: true, count: payload.length, note: first };
+    return { ok: false, reason: await parseError(res) };
+  }
+
+  let timer = null;
+  function queue(kind, data) {
+    if (kind !== "roster") return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      pushRows(data).then((r) => {
+        global.dispatchEvent(
+          new CustomEvent("formsy-cloud", { detail: Object.assign({ kind: "push" }, r) })
+        );
+      });
+    }, 900);
+  }
+
+  async function hydrateRoster() {
+    if (!global.FormSYHR || !global.FormSYHR.mergeRoster) return;
+    const c = cfg();
+    if (!c.url || !c.anon) return;
+    try {
+      const r = await pull();
+      if (r.ok && r.rows.length) {
+        global.FormSYHR.mergeRoster(r.rows, true);
+        global.FormSYHR.renderAll();
+      }
+      global.dispatchEvent(
+        new CustomEvent("formsy-cloud", { detail: { kind: "pull", ok: r.ok, count: r.rows.length, reason: r.reason } })
+      );
+    } catch (e) {
+      global.dispatchEvent(
+        new CustomEvent("formsy-cloud", { detail: { kind: "pull", ok: false, reason: String(e) } })
+      );
+    }
+  }
+
+  global.FormSYCloud = { cfg, pull, pushRows, queue, hydrateRoster, rowFrom, recFrom, SETUP_SQL: null };
+  global.addEventListener("message", (e) => {
+    if (e && e.data && e.data.type === "formsy-cloud-reload") hydrateRoster();
+  });
+
+  const SETUP_SQL =
+    "-- شغّل هذا مرة واحدة في Supabase → SQL Editor → Run\n" +
+    "alter table public.thatea enable row level security;\n" +
+    "drop policy if exists thata_office_readwrite on public.thatea;\n" +
+    "create policy thata_office_readwrite on public.thatea for all to anon, authenticated using (true) with check (true);\n" +
+    "create unique index if not exists thata_national_id_uidx on public.thatea (\"الرقم_الوطني\") where \"الرقم_الوطني\" is not null and \"الرقم_الوطني\" <> '';\n";
+  global.FormSYCloud.SETUP_SQL = SETUP_SQL;
+
+  function bindCloudUi() {
+    const modal = document.getElementById("cloud-modal");
+    const btn = document.getElementById("btnCloud");
+    if (!modal || !btn) return;
+    const close = document.getElementById("btnCloudClose");
+    const save = document.getElementById("btnCloudSave");
+    const copy = document.getElementById("btnCloudSql");
+    const clear = document.getElementById("btnCloudClear");
+    const urlEl = document.getElementById("cloud-url");
+    const anonEl = document.getElementById("cloud-anon");
+    const tableEl = document.getElementById("cloud-table");
+    const msg = document.getElementById("cloud-msg");
+    const sqlEl = document.getElementById("cloud-sql");
+    if (sqlEl) sqlEl.textContent = SETUP_SQL;
+    function fill() {
+      const c = cfg();
+      if (urlEl) urlEl.value = c.url;
+      if (anonEl) anonEl.value = c.anon;
+      if (tableEl) tableEl.value = c.table;
+    }
+    function setMsg(text, ok) {
+      if (!msg) return;
+      msg.textContent = text;
+      msg.className = "cloud-msg " + (ok === true ? "ok" : ok === false ? "err" : "");
+    }
+    btn.onclick = () => {
+      fill();
+      modal.classList.remove("hidden");
+    };
+    if (close) close.onclick = () => modal.classList.add("hidden");
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) modal.classList.add("hidden");
+    });
+    if (copy) {
+      copy.onclick = () => {
+        navigator.clipboard.writeText(SETUP_SQL).then(
+          () => setMsg("تم نسخ SQL — الصقه في SQL Editor ثم Run", true),
+          () => setMsg("انسخ النص يدوياً من الصندوق أدناه", false)
+        );
+      };
+    }
+    if (clear) {
+      clear.onclick = () => {
+        localStorage.removeItem("formSY.cloud.url");
+        localStorage.removeItem("formSY.cloud.anon");
+        localStorage.setItem("formSY.cloud.table", "thatea");
+        fill();
+        setMsg("تم الفصل — البيانات تبقى على هذا الجهاز فقط", true);
+      };
+    }
+    if (save) {
+      save.onclick = async () => {
+        localStorage.setItem("formSY.cloud.url", (urlEl.value || "").replace(/\/+$/, ""));
+        localStorage.setItem("formSY.cloud.anon", (anonEl.value || "").trim());
+        localStorage.setItem("formSY.cloud.table", (tableEl.value || "thatea").trim() || "thatea");
+        setMsg("جاري الاختبار…");
+        try {
+          const r = await pull();
+          if (!r.ok) {
+            setMsg("فشل: " + (r.reason || "تحقق من الرابط والمفتاح وSQL"), false);
+            return;
+          }
+          await hydrateRoster();
+          setMsg("متصل — " + r.rows.length + " صف في الجدول. احفظ موظفاً ليظهر في thata.", true);
+        } catch (e) {
+          setMsg("فشل: " + (e.message || e), false);
+        }
+      };
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bindCloudUi);
+  else bindCloudUi();
+})(window);

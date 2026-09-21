@@ -1,0 +1,8 @@
+[build]
+  publish = "."
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Referrer-Policy = "same-origin"
+    X-Frame-Options = "SAMEORIGIN"

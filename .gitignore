@@ -1,0 +1,8 @@
+.env
+.env.*
+*.xlsx
+*.xls
+~$*
+ذاتيات*
+node_modules/
+.DS_Store
