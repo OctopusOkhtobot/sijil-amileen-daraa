@@ -399,14 +399,14 @@
       </header>
       <ol class="cloud-steps">
         <li>افتح مشروعك في Supabase → SQL Editor → الصق الأمر ثم Run.</li>
-        <li>من Settings → API انسخ Project URL ومفتاح <b>anon public</b> فقط.</li>
-        <li>الصقهما هنا واضغط حفظ واختبار. بعدين احفظ أي موظف ليظهر في جدول <b>thatea</b>.</li>
+        <li>من الشريط الأيسر: <b>Project Settings → API Keys</b>. انسخ <b>Publishable key</b> (يبدأ بـ sb_publishable_). إذا ما ظهر، افتح تبويب <b>Legacy API keys</b> وانسخ <b>anon</b>.</li>
+        <li>الصق الرابط والمفتاح هنا واضغط حفظ واختبار. لا تنسخ Secret ولا service_role.</li>
       </ol>
       <label>رابط المشروع
         <input id="cloud-url" dir="ltr" placeholder="https://xxxx.supabase.co" autocomplete="off">
       </label>
-      <label>anon public
-        <input id="cloud-anon" dir="ltr" type="password" placeholder="eyJ..." autocomplete="off">
+      <label>Publishable key (أو anon)
+        <input id="cloud-anon" dir="ltr" type="password" placeholder="sb_publishable_... أو eyJ..." autocomplete="off">
       </label>
       <label>اسم الجدول
         <input id="cloud-table" dir="ltr" value="thatea">
