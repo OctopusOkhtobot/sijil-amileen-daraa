@@ -89,15 +89,14 @@
   }
 
   function headers(anon, extra) {
-    return Object.assign(
-      {
-        apikey: anon,
-        Authorization: "Bearer " + anon,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      extra || {}
-    );
+    const h = {
+      apikey: anon,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    // المفتاح الجديد sb_publishable مو JWT. Bearer معه يرفضه السيرفر.
+    if (anon.indexOf("eyJ") === 0) h.Authorization = "Bearer " + anon;
+    return Object.assign(h, extra || {});
   }
 
   function restUrl(c, path, query) {
@@ -195,6 +194,39 @@
     "create unique index if not exists thata_national_id_uidx on public.thatea (\"الرقم_الوطني\") where \"الرقم_الوطني\" is not null and \"الرقم_الوطني\" <> '';\n";
   global.FormSYCloud.SETUP_SQL = SETUP_SQL;
 
+  function readCloudFields(rawUrl, rawKey, rawTable) {
+    let url = String(rawUrl || "").trim().replace(/^['"]|['"]$/g, "");
+    let anon = String(rawKey || "").trim().replace(/^['"]|['"]$/g, "");
+    const table = String(rawTable || "thatea").trim() || "thatea";
+    const blob = (url + "\n" + anon).trim();
+    const bits = blob.split(/[\s,]+/).filter(Boolean);
+    bits.forEach((bit) => {
+      if (/^sb_(publishable|secret)_/i.test(bit) || bit.indexOf("eyJ") === 0) anon = bit;
+      else if (/supabase\.co/i.test(bit) || /^https?:\/\//i.test(bit)) url = bit;
+    });
+    if (/^sb_(publishable|secret)_/i.test(url) || url.indexOf("eyJ") === 0) {
+      const swap = url;
+      url = /^https?:\/\//i.test(anon) ? anon : "";
+      anon = swap;
+    }
+    url = url.replace(/\/+$/, "").replace(/\/(rest|auth|storage)\/v1.*$/i, "");
+    try {
+      if (url) url = new URL(url).origin;
+    } catch (e) {}
+    return { url: url, anon: anon, table: table };
+  }
+
+  function explainCloudError(reason) {
+    const r = String(reason || "");
+    if (r === "not-configured") return "الرابط أو المفتاح فاضي. لازم الاثنين.";
+    if (/invalid api key|401|unauthorized/i.test(r)) return "المفتاح غلط. انسخ Publishable key من Project Settings → API Keys، مو Secret.";
+    if (/JWT|PGRST301/i.test(r)) return "المفتاح انرفض. استخدم Publishable (sb_publishable) مو Secret.";
+    if (/PGRST205|could not find|schema cache|42P01|does not exist/i.test(r)) return "الجدول thata مو ظاهر للـ API. تأكد إن الاسم thata وشغّل SQL.";
+    if (/permission|42501|row-level|RLS/i.test(r)) return "الجدول مقفول. اضغط نسخ SQL والصقه في SQL Editor ثم Run، وبعدين أعد الاختبار.";
+    if (/failed to fetch|network|cors/i.test(r)) return "ما قدر يوصل للرابط. تأكد إنه https://xxxx.supabase.co بدون / في الآخر.";
+    return r;
+  }
+
   function bindCloudUi() {
     const modal = document.getElementById("cloud-modal");
     const btn = document.getElementById("btnCloud");
@@ -247,14 +279,25 @@
     }
     if (save) {
       save.onclick = async () => {
-        localStorage.setItem("formSY.cloud.url", (urlEl.value || "").replace(/\/+$/, ""));
-        localStorage.setItem("formSY.cloud.anon", (anonEl.value || "").trim());
-        localStorage.setItem("formSY.cloud.table", (tableEl.value || "thatea").trim() || "thatea");
+        const parsed = readCloudFields(urlEl && urlEl.value, anonEl && anonEl.value, tableEl && tableEl.value);
+        if (urlEl) urlEl.value = parsed.url;
+        if (anonEl) anonEl.value = parsed.anon;
+        if (tableEl) tableEl.value = parsed.table;
+        if (!parsed.url || !parsed.anon) {
+          const miss = [];
+          if (!parsed.url) miss.push("رابط المشروع (https://xxxx.supabase.co)");
+          if (!parsed.anon) miss.push("Publishable key");
+          setMsg("ناقص: " + miss.join(" و "), false);
+          return;
+        }
+        localStorage.setItem("formSY.cloud.url", parsed.url);
+        localStorage.setItem("formSY.cloud.anon", parsed.anon);
+        localStorage.setItem("formSY.cloud.table", parsed.table);
         setMsg("جاري الاختبار…");
         try {
           const r = await pull();
           if (!r.ok) {
-            setMsg("فشل: " + (r.reason || "تحقق من الرابط والمفتاح وSQL"), false);
+            setMsg("فشل الاتصال: " + explainCloudError(r.reason), false);
             return;
           }
           await hydrateRoster();
