@@ -1,4 +1,4 @@
-const CACHE = "formsy-v10-nocors-sw";
+const CACHE = "formsy-v11-proxy";
 const ASSETS = [
   "./",
   "./index.html",
@@ -43,7 +43,9 @@ self.addEventListener("fetch", (e) => {
           return res;
         })
         .catch(() => cached);
-      return cached || net;
+      return net.catch(function () {
+        return cached;
+      });
     })
   );
 });

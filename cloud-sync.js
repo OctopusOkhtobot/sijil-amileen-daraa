@@ -111,15 +111,46 @@
     return msg;
   }
 
+  async function viaProxy(c, method, query, body, prefer) {
+    let res;
+    try {
+      res = await fetch("/.netlify/functions/sb", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          url: c.url,
+          key: c.anon,
+          table: c.table,
+          method: method,
+          query: query || "",
+          body: body,
+          prefer: prefer || "",
+        }),
+      });
+    } catch (e) {
+      return null;
+    }
+    if (res.status === 404) return null;
+    return res;
+  }
+
   async function pull() {
     const c = cfg();
     if (!c.url || !c.anon) return { ok: false, reason: "not-configured", rows: [] };
-    const res = await fetch(restUrl(c, "", "select=*&limit=1"), {
-      method: "GET",
-      mode: "cors",
-      cache: "no-store",
-      headers: headers(c.anon),
-    });
+    let res = await viaProxy(c, "GET", "select=*&limit=1");
+    if (!res) {
+      try {
+        res = await fetch(restUrl(c, "", "select=*&limit=1"), {
+          method: "GET",
+          mode: "cors",
+          cache: "no-store",
+          headers: headers(c.anon),
+        });
+      } catch (e) {
+        return { ok: false, reason: e.message || String(e), rows: [] };
+      }
+    }
     if (!res.ok) return { ok: false, reason: await parseError(res), rows: [] };
     const data = await res.json();
     return { ok: true, rows: Array.isArray(data) ? data.map(recFrom) : [] };
@@ -130,33 +161,45 @@
     if (!c.url || !c.anon) return { ok: false, reason: "not-configured" };
     const payload = (records || []).map(rowFrom).filter((r) => Object.keys(r).length);
     if (!payload.length) return { ok: true, count: 0 };
-    let res = await fetch(
-      restUrl(c, "", "on_conflict=" + encodeURIComponent("الرقم_الوطني")),
-      {
-        method: "POST",
-        mode: "cors",
-        cache: "no-store",
-        headers: headers(c.anon, {
-          "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates,return=minimal",
-        }),
-        body: JSON.stringify(payload),
-      }
+    const prefer = "resolution=merge-duplicates,return=minimal";
+    let res = await viaProxy(
+      c,
+      "POST",
+      "on_conflict=" + encodeURIComponent("الرقم_الوطني"),
+      payload,
+      prefer
     );
+    if (!res) {
+      try {
+        res = await fetch(restUrl(c, "", "on_conflict=" + encodeURIComponent("الرقم_الوطني")), {
+          method: "POST",
+          mode: "cors",
+          cache: "no-store",
+          headers: headers(c.anon, { "Content-Type": "application/json", Prefer: prefer }),
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        return { ok: false, reason: e.message || String(e) };
+      }
+    }
     if (res.ok) return { ok: true, count: payload.length };
     const first = await parseError(res);
-    res = await fetch(restUrl(c, "", ""), {
-      method: "POST",
-      mode: "cors",
-      cache: "no-store",
-      headers: headers(c.anon, {
-        "Content-Type": "application/json",
-        Prefer: "return=minimal",
-      }),
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) return { ok: true, count: payload.length, note: first };
-    return { ok: false, reason: await parseError(res) };
+    let res2 = await viaProxy(c, "POST", "", payload, "return=minimal");
+    if (!res2) {
+      try {
+        res2 = await fetch(restUrl(c, "", ""), {
+          method: "POST",
+          mode: "cors",
+          cache: "no-store",
+          headers: headers(c.anon, { "Content-Type": "application/json", Prefer: "return=minimal" }),
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        return { ok: false, reason: first };
+      }
+    }
+    if (res2.ok) return { ok: true, count: payload.length, note: first };
+    return { ok: false, reason: await parseError(res2) };
   }
 
   let timer = null;
