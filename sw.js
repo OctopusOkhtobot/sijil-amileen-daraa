@@ -1,4 +1,4 @@
-const CACHE = "formsy-v9-cloud-fields";
+const CACHE = "formsy-v10-nocors-sw";
 const ASSETS = [
   "./",
   "./index.html",
@@ -30,6 +30,8 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
+  const dest = new URL(e.request.url);
+  if (dest.origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request).then((cached) => {
       const net = fetch(e.request)

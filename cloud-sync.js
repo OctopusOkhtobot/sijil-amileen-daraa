@@ -91,11 +91,9 @@
   function headers(anon, extra) {
     const h = {
       apikey: anon,
+      Authorization: "Bearer " + anon,
       Accept: "application/json",
-      "Content-Type": "application/json",
     };
-    // المفتاح الجديد sb_publishable مو JWT. Bearer معه يرفضه السيرفر.
-    if (anon.indexOf("eyJ") === 0) h.Authorization = "Bearer " + anon;
     return Object.assign(h, extra || {});
   }
 
@@ -116,7 +114,12 @@
   async function pull() {
     const c = cfg();
     if (!c.url || !c.anon) return { ok: false, reason: "not-configured", rows: [] };
-    const res = await fetch(restUrl(c, "", "select=*"), { headers: headers(c.anon) });
+    const res = await fetch(restUrl(c, "", "select=*&limit=1"), {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+      headers: headers(c.anon),
+    });
     if (!res.ok) return { ok: false, reason: await parseError(res), rows: [] };
     const data = await res.json();
     return { ok: true, rows: Array.isArray(data) ? data.map(recFrom) : [] };
@@ -131,7 +134,10 @@
       restUrl(c, "", "on_conflict=" + encodeURIComponent("الرقم_الوطني")),
       {
         method: "POST",
+        mode: "cors",
+        cache: "no-store",
         headers: headers(c.anon, {
+          "Content-Type": "application/json",
           Prefer: "resolution=merge-duplicates,return=minimal",
         }),
         body: JSON.stringify(payload),
@@ -141,7 +147,12 @@
     const first = await parseError(res);
     res = await fetch(restUrl(c, "", ""), {
       method: "POST",
-      headers: headers(c.anon, { Prefer: "return=minimal" }),
+      mode: "cors",
+      cache: "no-store",
+      headers: headers(c.anon, {
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      }),
       body: JSON.stringify(payload),
     });
     if (res.ok) return { ok: true, count: payload.length, note: first };
@@ -209,10 +220,13 @@
       url = /^https?:\/\//i.test(anon) ? anon : "";
       anon = swap;
     }
-    url = url.replace(/\/+$/, "").replace(/\/(rest|auth|storage)\/v1.*$/i, "");
+    url = url.replace(/[^\x00-\x7F]/g, "").replace(/\/+$/, "").replace(/\/(rest|auth|storage)\/v1.*$/i, "");
     try {
       if (url) url = new URL(url).origin;
-    } catch (e) {}
+    } catch (e) {
+      url = "";
+    }
+    if (/supabase\.com$/i.test(url) || /:\/\/supabase\.com/i.test(url)) url = "";
     return { url: url, anon: anon, table: table };
   }
 
@@ -223,7 +237,9 @@
     if (/JWT|PGRST301/i.test(r)) return "المفتاح انرفض. استخدم Publishable (sb_publishable) مو Secret.";
     if (/PGRST205|could not find|schema cache|42P01|does not exist/i.test(r)) return "الجدول thata مو ظاهر للـ API. تأكد إن الاسم thata وشغّل SQL.";
     if (/permission|42501|row-level|RLS/i.test(r)) return "الجدول مقفول. اضغط نسخ SQL والصقه في SQL Editor ثم Run، وبعدين أعد الاختبار.";
-    if (/failed to fetch|network|cors/i.test(r)) return "ما قدر يوصل للرابط. تأكد إنه https://xxxx.supabase.co بدون / في الآخر.";
+    if (/failed to fetch|networkerror|network error|load failed|cors/i.test(r)) {
+      return "المتصفح ما قدر يوصل لـ Supabase. الرابط لازم يكون https://xxxx.supabase.co (من زر Connect)، مو صفحة supabase.com. جرّب فتح الرابط في تبويب جديد. إذا ما فتح، الشبكة حاجبة supabase.co.";
+    }
     return r;
   }
 
@@ -303,7 +319,7 @@
           await hydrateRoster();
           setMsg("متصل — " + r.rows.length + " صف في الجدول. احفظ موظفاً ليظهر في thata.", true);
         } catch (e) {
-          setMsg("فشل: " + (e.message || e), false);
+          setMsg(explainCloudError(e && e.message ? e.message : e), false);
         }
       };
     }
