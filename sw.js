@@ -1,4 +1,4 @@
-const CACHE = "formsy-v11-proxy";
+const CACHE = "formsy-v12-upload";
 const ASSETS = [
   "./",
   "./index.html",
