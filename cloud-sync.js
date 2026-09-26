@@ -1,4 +1,4 @@
-/* Sync roster rows to Supabase table (default: thata) via PostgREST. */
+/* Sync roster rows to Supabase table (default: thatea) via PostgREST. */
 (function (global) {
   const COLS = [
     ["عمود1", "id"],
@@ -138,10 +138,11 @@
   async function pull() {
     const c = cfg();
     if (!c.url || !c.anon) return { ok: false, reason: "not-configured", rows: [] };
-    let res = await viaProxy(c, "GET", "select=*&limit=1");
+    const query = "select=*&limit=2000";
+    let res = await viaProxy(c, "GET", query);
     if (!res) {
       try {
-        res = await fetch(restUrl(c, "", "select=*&limit=1"), {
+        res = await fetch(restUrl(c, "", query), {
           method: "GET",
           mode: "cors",
           cache: "no-store",
@@ -156,50 +157,52 @@
     return { ok: true, rows: Array.isArray(data) ? data.map(recFrom) : [] };
   }
 
-  async function pushRows(records) {
-    const c = cfg();
-    if (!c.url || !c.anon) return { ok: false, reason: "not-configured" };
-    const payload = (records || []).map(rowFrom).filter((r) => Object.keys(r).length);
-    if (!payload.length) return { ok: true, count: 0 };
-    const prefer = "resolution=merge-duplicates,return=minimal";
-    let res = await viaProxy(
-      c,
-      "POST",
-      "on_conflict=" + encodeURIComponent("الرقم_الوطني"),
-      payload,
-      prefer
-    );
+  async function postRows(c, rows, query, prefer) {
+    let res = await viaProxy(c, "POST", query, rows, prefer);
     if (!res) {
       try {
-        res = await fetch(restUrl(c, "", "on_conflict=" + encodeURIComponent("الرقم_الوطني")), {
+        res = await fetch(restUrl(c, "", query), {
           method: "POST",
           mode: "cors",
           cache: "no-store",
-          headers: headers(c.anon, { "Content-Type": "application/json", Prefer: prefer }),
-          body: JSON.stringify(payload),
+          headers: headers(c.anon, {
+            "Content-Type": "application/json",
+            Prefer: prefer || "return=minimal",
+          }),
+          body: JSON.stringify(rows),
         });
       } catch (e) {
         return { ok: false, reason: e.message || String(e) };
       }
     }
-    if (res.ok) return { ok: true, count: payload.length };
-    const first = await parseError(res);
-    let res2 = await viaProxy(c, "POST", "", payload, "return=minimal");
-    if (!res2) {
-      try {
-        res2 = await fetch(restUrl(c, "", ""), {
-          method: "POST",
-          mode: "cors",
-          cache: "no-store",
-          headers: headers(c.anon, { "Content-Type": "application/json", Prefer: "return=minimal" }),
-          body: JSON.stringify(payload),
-        });
-      } catch (e) {
-        return { ok: false, reason: first };
+    if (res.ok) return { ok: true };
+    return { ok: false, reason: await parseError(res) };
+  }
+
+  async function pushRows(records) {
+    const c = cfg();
+    if (!c.url || !c.anon) return { ok: false, reason: "not-configured" };
+    const payload = (records || []).map(rowFrom).filter((r) => Object.keys(r).length);
+    if (!payload.length) return { ok: false, reason: "ما في صفوف محفوظة على هذا الجهاز لرفعها" };
+    let okCount = 0;
+    const errors = [];
+    for (let i = 0; i < payload.length; i++) {
+      const row = payload[i];
+      let sent = await postRows(c, [row], "", "return=minimal");
+      const dup = /duplicate|23505|already exists|unique/i.test(sent.reason || "");
+      if (!sent.ok && dup && row["الرقم_الوطني"]) {
+        sent = await postRows(
+          c,
+          [row],
+          "on_conflict=" + encodeURIComponent("الرقم_الوطني"),
+          "resolution=merge-duplicates,return=minimal"
+        );
       }
+      if (sent.ok) okCount += 1;
+      else if (errors.length < 2) errors.push(sent.reason || "فشل صف");
     }
-    if (res2.ok) return { ok: true, count: payload.length, note: first };
-    return { ok: false, reason: await parseError(res2) };
+    if (!okCount) return { ok: false, reason: errors[0] || "ما انرفع ولا صف" };
+    return { ok: true, count: okCount, note: errors[0] || "" };
   }
 
   let timer = null;
@@ -278,7 +281,7 @@
     if (r === "not-configured") return "الرابط أو المفتاح فاضي. لازم الاثنين.";
     if (/invalid api key|401|unauthorized/i.test(r)) return "المفتاح غلط. انسخ Publishable key من Project Settings → API Keys، مو Secret.";
     if (/JWT|PGRST301/i.test(r)) return "المفتاح انرفض. استخدم Publishable (sb_publishable) مو Secret.";
-    if (/PGRST205|could not find|schema cache|42P01|does not exist/i.test(r)) return "الجدول thata مو ظاهر للـ API. تأكد إن الاسم thata وشغّل SQL.";
+    if (/PGRST205|could not find|schema cache|42P01|does not exist/i.test(r)) return "الجدول thata مو ظاهر للـ API. تأكد إن الاسم thatea وشغّل SQL.";
     if (/permission|42501|row-level|RLS/i.test(r)) return "الجدول مقفول. اضغط نسخ SQL والصقه في SQL Editor ثم Run، وبعدين أعد الاختبار.";
     if (/failed to fetch|networkerror|network error|load failed|cors/i.test(r)) {
       return "المتصفح ما قدر يوصل لـ Supabase. الرابط لازم يكون https://xxxx.supabase.co (من زر Connect)، مو صفحة supabase.com. جرّب فتح الرابط في تبويب جديد. إذا ما فتح، الشبكة حاجبة supabase.co.";
@@ -352,15 +355,22 @@
         localStorage.setItem("formSY.cloud.url", parsed.url);
         localStorage.setItem("formSY.cloud.anon", parsed.anon);
         localStorage.setItem("formSY.cloud.table", parsed.table);
-        setMsg("جاري الاختبار…");
+        setMsg("جاري رفع السجلات الموجودة على هذا الجهاز…");
         try {
+          const roster = global.FormSYHR && global.FormSYHR.getRoster ? global.FormSYHR.getRoster() : [];
+          const up = await pushRows(roster);
+          if (!up.ok) {
+            setMsg("الرفع فشل: " + explainCloudError(up.reason), false);
+            return;
+          }
           const r = await pull();
           if (!r.ok) {
             setMsg("فشل الاتصال: " + explainCloudError(r.reason), false);
             return;
           }
           await hydrateRoster();
-          setMsg("متصل — " + r.rows.length + " صف في الجدول. احفظ موظفاً ليظهر في thata.", true);
+          const extra = up.note ? " تنبيه: " + explainCloudError(up.note) : "";
+          setMsg("متصل — رُفع " + up.count + " والسحابة فيها " + r.rows.length + " صف." + extra, true);
         } catch (e) {
           setMsg(explainCloudError(e && e.message ? e.message : e), false);
         }
