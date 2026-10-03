@@ -1,0 +1,15 @@
+{
+  "name": "السجل العام للعاملين في الدولة — وزارة التنمية الإدارية",
+  "short_name": "سجل العاملين",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#d8dde6",
+  "theme_color": "#0b1f3a",
+  "description": "واجهة إدخال وتصدير وطباعة البطاقة الذاتية للعاملين في الدولة",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1f3a">
+  <meta name="description" content="البطاقة الذاتية للعاملين في الدولة — الجمهورية العربية السورية">
+  <title>السجل العام للعاملين في الدولة — وزارة التنمية الإدارية</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="auth-gate" class="auth-gate">
+    <form id="auth-card" class="auth-card" autocomplete="off">
+      <h2 id="auth-title">الدخول إلى السجل</h2>
+      <p id="auth-lead" class="auth-lead"></p>
+      <label>اسم المستخدم
+        <input id="auth-user" autocomplete="username">
+      </label>
+      <label>كلمة المرور
+        <input id="auth-pass" type="password" autocomplete="current-password">
+      </label>
+      <label id="auth-pass2-label" class="hidden">تأكيد كلمة المرور
+        <input id="auth-pass2" type="password" autocomplete="new-password">
+      </label>
+      <div class="auth-actions">
+        <button type="submit" class="btn ok" id="auth-submit">دخول</button>
+        <button type="button" class="btn" id="auth-switch">تسجيل مدخل بيانات</button>
+      </div>
+      <p id="auth-msg" class="cloud-msg"></p>
+    </form>
+  </div>
+  <header class="toolbar no-print">
+    <div class="brand">
+      <div>
+        <h1>السجل العام للعاملين في الدولة</h1>
+        <p>وزارة التنمية الإدارية</p>
+      </div>
+    </div>
+    <nav class="view-tabs" id="viewTabs">
+      <button type="button" data-view="card" class="active">البطاقة الذاتية</button>
+      <button type="button" data-view="registry">سجل الموظفين</button>
+      <button type="button" data-view="report">التقارير والإحصاء</button>
+    </nav>
+    <span class="status" id="status"></span>
+    <span class="who" id="whoami"></span>
+    <button type="button" class="btn hidden" id="btnUsers">المستخدمون</button>
+    <button type="button" class="btn gold" id="btnCloud">الربط السحابي</button>
+    <button type="button" class="btn" id="btnLogout">خروج</button>
+  </header>
+
+  <div class="toolbar subbar no-print" id="bar-card">
+    <input id="cardSearch" type="search" placeholder="بحث في البطاقات بالاسم أو الرقم الوطني…" title="بحث">
+    <select id="cardSelect" title="البطاقات المحفوظة"></select>
+    <button type="button" class="btn gold" id="btnNew">بطاقة جديدة</button>
+    <button type="button" class="btn ok" id="btnSave">حفظ</button>
+    <button type="button" class="btn primary" id="btnExport">تصدير Excel</button>
+    <button type="button" class="btn" id="btnExportAll">تصدير الكل</button>
+    <button class="btn" id="btnPrint" type="button">طباعة البطاقة</button>
+    <button class="btn danger" id="btnDelete" type="button">حذف البطاقة</button>
+    <button class="btn" id="btnJson">نسخة احتياطية</button>
+    <label class="btn" for="fileJson">استيراد JSON</label>
+    <input id="fileJson" type="file" accept="application/json" hidden>
+    <label class="btn gold" for="fileExcel">استيراد Excel</label>
+    <input id="fileExcel" type="file" accept=".xlsx,.xls" multiple hidden>
+    <label class="btn" for="fileFolder">استيراد مجلد بطاقات</label>
+    <input id="fileFolder" type="file" accept=".xlsx,.xls" multiple webkitdirectory hidden>
+    <button type="button" class="btn" id="btnOpenRoster">فتح السجل المرتبط</button>
+    <button type="button" class="btn ok" id="btnExportRoster">تصدير إلى سجل الموظفين</button>
+    <div class="zoom-wrap">
+      <span>تكبير</span>
+      <input id="zoom" type="range" min="55" max="130" value="100">
+    </div>
+  </div>
+
+  <div class="toolbar subbar no-print hidden" id="bar-registry">
+    <input id="roster-search" type="search" placeholder="بحث بالاسم أو الرقم الوطني أو الهاتف أو الوحدة…">
+    <button type="button" class="btn gold" id="btnRosterNew">موظف جديد</button>
+    <button type="button" class="btn ok" id="btnRosterSave">حفظ السجل</button>
+    <button type="button" class="btn primary" id="btnOpenCard">فتح / إنشاء البطاقة الذاتية</button>
+    <button type="button" class="btn danger" id="btnRosterDelete">حذف السجل</button>
+    <label class="btn" for="fileExcel2">استيراد جدول Excel</label>
+    <input id="fileExcel2" type="file" accept=".xlsx,.xls" multiple hidden>
+    <button type="button" class="btn" id="btnClearFilters">مسح التصفية</button>
+    <button type="button" class="btn" id="btnRegForm">نموذج الموظف</button>
+    <button type="button" class="btn" id="btnRegTable">جدول السجل</button>
+  </div>
+
+  <div class="toolbar subbar no-print hidden" id="bar-report">
+    <input id="report-search" type="search" placeholder="بحث داخل الكشف…">
+    <button type="button" class="btn primary" id="btnPrintReport">طباعة الناتج</button>
+    <button type="button" class="btn ok" id="btnExportReport">تصدير الكشف Excel</button>
+    <button type="button" class="btn" id="btnDefaultFields">حقول افتراضية</button>
+    <button type="button" class="btn" id="btnAllFields">كل الحقول</button>
+    <button type="button" class="btn" id="btnClearFilters2">مسح التصفية</button>
+    <span id="report-count" class="status">0 سجل</span>
+  </div>
+
+  <div class="workspace" id="view-card">
+    <nav class="page-nav no-print">
+      <button data-page="1" class="active">وجه 1 — البطاقة</button>
+      <button data-page="2">وجه 2 — الإجازات والمكافآت</button>
+    </nav>
+    <p class="hint-bar no-print">
+      انقر الخانة واكتب كالنموذج. تنقّل بزر <b>Tab</b>.
+      الطباعة والتصدير صفحتان فقط: البطاقة، ثم الإجازات والمكافآت.
+      الحفظ يضيف البطاقة إلى سجل الموظفين إذا لم يتطابق الرقم الوطني، أو الاسم مع اسم الأب.
+      &nbsp;|&nbsp; <b class="lbl">أزرق</b> تسمية · <b class="val">أسود</b> بيانات · <b class="sug">أحمر</b> اقتراح
+    </p>
+
+    <div class="stage" id="stage">
+      <!-- PAGE 1 -->
+      <section class="page" data-page="1">
+        <div class="p1">
+          <div class="cell hdr-state">الجمهورية العربية السورية</div>
+          <div class="cell hdr-pm">رئاسة مجلس الوزراء</div>
+          <div class="cell hdr-reg">السجل العام للعاملين في الدولة</div>
+          <div class="cell hdr-title">البطــاقة الذاتيـــة</div>
+
+          <div class="th r4a">الجهة العامة :</div>
+          <div class="cell val r4b"><input data-field="agency"></div>
+          <div class="th r4c">الرقم الوطني</div>
+          <div class="cell val r4d"><input data-field="nationalId"></div>
+          <div class="th r4e">الرقم الذاتي</div>
+          <div class="cell val r4f"><input data-field="selfId"></div>
+          <div class="th r4g">الرقم التأميني</div>
+          <div class="cell val r4h"><input data-field="insuranceId"></div>
+
+          <div class="th r5a">الاسم والنسبة</div>
+          <div class="th r5b">اسم الاب</div>
+          <div class="th r5c">اسم الام ونسبتها</div>
+          <div class="th r5d">مكــــان وتاريـــخ الولادة</div>
+          <div class="th r5e">محل ورقم القيد</div>
+          <div class="th r5f">الجنس</div>
+          <div class="th r5g">الجنسية</div>
+          <div class="th r5h">اللغة الاجنبيــة</div>
+
+          <div class="cell val r6a"><input data-field="fullName"></div>
+          <div class="cell val r6b"><input data-field="fatherName"></div>
+          <div class="cell val r6c"><input data-field="motherName"></div>
+          <div class="cell val r6d"><input data-field="birthPlaceDate"></div>
+          <div class="cell val r6e"><input data-field="registryPlaceNo"></div>
+          <div class="cell val r6f"><input data-field="gender" list="list-gender"></div>
+          <div class="cell val r6g"><input data-field="nationality"></div>
+          <div class="cell val r6h"><input data-field="foreignLang"></div>
+
+          <div class="th r7a">المؤهل العلمي أو المهني</div>
+          <div class="th r7b">الدورات والدراسات التدريبية و المسلكية:</div>
+          <div class="th r7c">مكان الاقامة الحالي</div>
+          <div class="cell val r8a"><input data-field="qualification"></div>
+          <div class="cell val r8b"><input data-field="courses"></div>
+          <div class="cell val r8c"><input data-field="residence"></div>
+
+          <div class="cell job-title">الوضع الوظيفي</div>
+
+          <div class="th dec-a">عملاً بالقــرار</div>
+          <div class="th dec-b">رقم</div>
+          <div class="cell dec-c lbl"><input data-field="decreeNo" style="color:#002060"></div>
+          <div class="th dec-d">تاريخ</div>
+          <div class="cell dec-e lbl"><input data-field="decreeDate" style="color:#002060"></div>
+          <div class="th dec-f">نثبت مايلي:</div>
+          <div class="cell dec-g lbl"><input data-field="appointmentType" list="list-appoint" style="color:#002060"></div>
+          <div class="cell dec-end"></div>
+
+          <div class="th h-work">مركز العمل</div>
+          <div class="th h-title">المسمى الوظيفي</div>
+          <div class="th h-type">نوع الوظيفة</div>
+          <div class="th h-cat">الفئة</div>
+          <div class="th h-wage">الاجر</div>
+          <div class="th h-start">تاريخ المباشرة</div>
+          <div class="th h-chg">التبدلات الطارئة</div>
+          <div class="th h-doc">المستند</div>
+          <div class="th h-regn">اسم المسجل</div>
+          <div class="th h-regs">توقيع المسجل</div>
+          <div class="th h-cd">التاريخ</div>
+          <div class="th h-cr">السبب</div>
+          <div class="th h-dt">نوعه</div>
+          <div class="th h-dn">رقمه</div>
+          <div class="th h-dd">تاريخه</div>
+
+          <div class="jobs" id="jobs"></div>
+
+          <div class="th foot-n1">تـــــاريخ التبليــــــــــــغ:</div>
+          <div class="cell val foot-n2"><input data-field="notifyDate"></div>
+          <div class="th foot-e1">تاريــــــخ نهــــاية الخــدمة :</div>
+          <div class="cell val foot-e2"><input data-field="endServiceDate"></div>
+          <div class="th sign1">اسم وتوقيع مسؤول السجل الخاص مع الختم</div>
+          <div class="cell sign-space sign1a"><input data-field="registrarPrivate" placeholder=" "></div>
+          <div class="sign-space sign1b" aria-hidden="true"></div>
+          <div class="th sign2">اسم وتوقيع مدقق السجل العام للعاملين في الدولة</div>
+          <div class="cell sign-space sign2a"><input data-field="registrarAuditor" placeholder=" "></div>
+          <div class="sign-space sign2b" aria-hidden="true"></div>
+          <div class="th sign3">مدير السجل العام للعاملين في الدولة</div>
+        </div>
+      </section>
+
+      <!-- PAGE 2 -->
+      <section class="page" data-page="2">
+        <div class="p2">
+          <div class="cell sec t-leave">الاجـــازات الخاصـــة بلا اجر</div>
+          <div class="cell sec t-rew">المكـــافأت</div>
+
+          <div class="th lh1">مدتها</div>
+          <div class="th lh2">البدء</div>
+          <div class="th lh3">النهاية</div>
+          <div class="th lh4">الأسباب</div>
+          <div class="th lh5">المســــتند</div>
+          <div class="th lh6">اسم المسجل وتوقيعه</div>
+          <div class="th lh51">نوعه</div>
+          <div class="th lh52">رقمه</div>
+          <div class="th lh53">تاريخه</div>
+
+          <div class="th rh1">نوعها</div>
+          <div class="th rh2">أسبابها</div>
+          <div class="th rh3">المســـتند</div>
+          <div class="th rh4">اسم المسجل وتوقيعه</div>
+          <div class="th rh31">نوعه</div>
+          <div class="th rh32">رقمه</div>
+          <div class="th rh33">تاريخه</div>
+
+          <div class="leaves" id="leaves"></div>
+          <div class="rewards" id="rewards"></div>
+          <div class="cell sec t-pen">العقــــوبـــات</div>
+          <div class="penalties" id="penalties"></div>
+
+          <div class="th b-ins">مراحل الوضع التأميني</div>
+          <div class="th b-insr">اسم المسجل وتوقيعه</div>
+          <div class="th b-hea">الحالة الصحية</div>
+          <div class="th b-hear">اسم المسجل وتوقيعه</div>
+          <div class="th b-clr">براءة الذمة</div>
+          <div class="th b-clrr">اسم المسجل وتوقيعه</div>
+          <div class="ins" id="insurance"></div>
+          <div class="hea" id="health"></div>
+          <div class="clr" id="clearance"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <section class="hr-app hidden no-print" id="view-registry">
+    <aside class="hr-side">
+      <div class="filter-row" id="registry-filters">
+        <label>الفئة <select id="flt-category"></select></label>
+        <label>الحالة <select id="flt-status"></select></label>
+        <label>الجنس <select id="flt-gender"></select></label>
+        <label>مثبت / متعاقد <select id="flt-contractType"></select></label>
+        <label>الوحدة <select id="flt-unit"></select></label>
+        <label>نمط التعيين <select id="flt-appointmentMode"></select></label>
+        <label>الحالة الصحية <select id="flt-healthStatus"></select></label>
+        <label>الفصل <select id="flt-dismissed"></select></label>
+      </div>
+      <div class="list-head"><span id="roster-count">0</span></div>
+      <div id="roster-list" class="emp-list"></div>
+    </aside>
+    <div class="hr-main">
+      <div id="link-state" class="link-state"></div>
+      <div id="registry-stats" class="stats-mini"></div>
+      <form id="roster-form" class="roster-form" autocomplete="off"></form>
+    </div>
+    <div id="roster-table-wrap" class="roster-table-wrap hidden">
+      <table id="roster-table" class="preview-table"></table>
+    </div>
+  </section>
+
+  <section class="hr-app hidden no-print" id="view-report">
+    <div class="report-layout">
+      <div class="report-controls">
+        <h3>تصفية تلقائية</h3>
+        <div class="filter-row">
+          <label>الفئة <select id="rep-category"></select></label>
+          <label>الحالة <select id="rep-status"></select></label>
+          <label>الجنس <select id="rep-gender"></select></label>
+          <label>مثبت / متعاقد <select id="rep-contractType"></select></label>
+          <label>الوحدة <select id="rep-unit"></select></label>
+          <label>نمط التعيين <select id="rep-appointmentMode"></select></label>
+          <label>الحالة الصحية <select id="rep-healthStatus"></select></label>
+          <label>الفصل <select id="rep-dismissed"></select></label>
+        </div>
+        <h3>حقول التقرير المطبوعة</h3>
+        <p class="hint">اختر الأعمدة التي ستظهر في الكشف المطبوع وفي تصدير Excel. الإحصاءات تُحدَّث مع كل تصفية.</p>
+        <div id="field-picker" class="field-picker"></div>
+      </div>
+      <div class="report-body">
+        <div id="report-stats"></div>
+        <div class="table-wrap">
+          <table id="report-preview" class="preview-table"></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="print-report" class="print-report"></section>
+
+  <datalist id="list-gender">
+    <option value="ذكر">
+    <option value="أنثى">
+  </datalist>
+  <datalist id="list-appoint">
+    <option value="تعييناً بالوكالة">
+    <option value="تعييناً أصالة">
+    <option value="تثبيتاً">
+    <option value="نقلاً">
+    <option value="ندباً">
+  </datalist>
+  <datalist id="list-category">
+    <option value="الفئة الاولى">
+    <option value="الفئة الثانية">
+    <option value="الفئة الثالثة">
+    <option value="الفئة الرابعة">
+    <option value="الفئة الخامسة">
+  </datalist>
+  <datalist id="list-contract">
+    <option value="مثبت">
+    <option value="متعاقد">
+  </datalist>
+  <datalist id="list-status">
+    <option value="على رأس عمله">
+    <option value="اجازة بلا اجر">
+    <option value="مفصول">
+    <option value="منقول">
+    <option value="متقاعد">
+  </datalist>
+  <datalist id="list-marital">
+    <option value="عازب/ة">
+    <option value="متزوج/ه">
+    <option value="مطلق/ه">
+    <option value="أرمل/ة">
+  </datalist>
+  <datalist id="list-health">
+    <option value="سليم">
+    <option value="اعاقة">
+    <option value="معاق">
+    <option value="مرض مزمن">
+  </datalist>
+  <datalist id="list-yesno">
+    <option value="نعم">
+    <option value="لا">
+  </datalist>
+  <datalist id="list-reason">
+    <option value="ترفيع">
+    <option value="زيادة">
+    <option value="نقل">
+    <option value="ندب">
+    <option value="تعديل أجر">
+    <option value="تسوية">
+  </datalist>
+  <datalist id="list-doctype">
+    <option value="قرار">
+    <option value="مرسوم">
+    <option value="بلاغ">
+    <option value="أمر إداري">
+  </datalist>
+
+  <div id="users-modal" class="cloud-modal hidden no-print" role="dialog" aria-labelledby="users-title">
+    <div class="cloud-card">
+      <header>
+        <h2 id="users-title">المستخدمون — صلاحية المصمم</h2>
+        <button type="button" class="btn" id="btnUsersClose">إغلاق</button>
+      </header>
+      <p class="hint">المصمم يدير الحسابات ويرى كل السجلات ويعدّلها. المدير يرى كل السجلات ويعدّلها. مدخل البيانات يملك سجلاته فقط. تعديل نص البرنامج نفسه يبقى في المستودع حتى لا ينكسر السجل من المتصفح.</p>
+      <div id="users-list"></div>
+      <h3>حساب مدير جديد</h3>
+      <label>اسم المستخدم
+        <input id="mgr-user" autocomplete="off">
+      </label>
+      <label>كلمة المرور
+        <input id="mgr-pass" type="password" autocomplete="new-password">
+      </label>
+      <button type="button" class="btn ok" id="btnMgrCreate">إنشاء مدير</button>
+      <p id="users-msg" class="cloud-msg"></p>
+    </div>
+  </div>
+
+  <div id="cloud-modal" class="cloud-modal hidden no-print" role="dialog" aria-labelledby="cloud-title">
+    <div class="cloud-card">
+      <header>
+        <h2 id="cloud-title">ربط السجل مع Supabase</h2>
+        <button type="button" class="btn" id="btnCloudClose">إغلاق</button>
+      </header>
+      <ol class="cloud-steps">
+        <li>افتح مشروعك في Supabase → SQL Editor → الصق الأمر ثم Run.</li>
+        <li>من الشريط الأيسر: <b>Project Settings → API Keys</b>. انسخ <b>Publishable key</b> (يبدأ بـ sb_publishable_). إذا ما ظهر، افتح تبويب <b>Legacy API keys</b> وانسخ <b>anon</b>.</li>
+        <li>الصق الرابط والمفتاح هنا واضغط حفظ واختبار. لا تنسخ Secret ولا service_role.</li>
+      </ol>
+      <label>رابط المشروع
+        <input id="cloud-url" dir="ltr" placeholder="https://xxxx.supabase.co" autocomplete="off">
+      </label>
+      <label>Publishable key (أو anon)
+        <input id="cloud-anon" dir="ltr" type="password" placeholder="sb_publishable_... أو eyJ..." autocomplete="off">
+      </label>
+      <label>اسم الجدول
+        <input id="cloud-table" dir="ltr" value="thatea">
+      </label>
+      <div class="cloud-actions">
+        <button type="button" class="btn ok" id="btnCloudSave">حفظ واختبار</button>
+        <button type="button" class="btn" id="btnCloudSql">نسخ SQL</button>
+        <button type="button" class="btn danger" id="btnCloudClear">فصل</button>
+      </div>
+      <p id="cloud-msg" class="cloud-msg"></p>
+      <pre id="cloud-sql" class="cloud-sql" dir="ltr"></pre>
+    </div>
+  </div>
+
+  <footer class="credit no-print">
+    <img src="octopus.jpg" alt="Octopus">
+    <div>
+      <strong>أخطبوط للحلول البرمجية</strong>
+      <span class="sub">Octopus · م. حسن الزعبي</span>
+    </div>
+  </footer>
+
+  <script src="exceljs.min.js"></script>
+  <script src="excel-export.js"></script>
+  <script src="excel-import.js"></script>
+  <script src="data/seed.js"></script>
+  <script src="auth.js"></script>
+  <script src="cloud-sync.js"></script>
+  <script src="hr.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
