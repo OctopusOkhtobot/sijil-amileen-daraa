@@ -152,14 +152,21 @@
       app.printKeys = FIELDS.filter((f) => f.print).map((f) => f.key);
     }
   }
-  function persist() {
+  function persist(opts) {
     localStorage.setItem(ROSTER_KEY, JSON.stringify(app.roster));
     if (app.currentId) localStorage.setItem(CURRENT_KEY, app.currentId);
     localStorage.setItem(PRINT_FIELDS_KEY, JSON.stringify(app.printKeys));
-    if (global.FormSYCloud) global.FormSYCloud.queue("roster", app.roster);
+    if (opts && opts.sync === false) return;
+    if (global.FormSYCloud) global.FormSYCloud.queue("roster", scopeList());
   }
   function current() {
-    return app.roster.find((r) => r.id === app.currentId) || null;
+    const rec = app.roster.find((r) => r.id === app.currentId) || null;
+    if (!rec) return null;
+    if (!seesAll()) {
+      const u = global.FormSYAuth && global.FormSYAuth.user();
+      if (rec.owner !== u) return null;
+    }
+    return rec;
   }
   function setStatus(msg, ok) {
     if (app.bridge && app.bridge.setStatus) app.bridge.setStatus(msg, ok);
@@ -169,20 +176,21 @@
     const cn = digits(card && card.nationalId);
     const rn = digits(rec.nationalId);
     if (cn && rn && cn === rn) return 100;
-    const cs = digits(card && card.selfId);
-    const rs = digits(rec.selfId);
-    if (cs && rs && cs === rs) return 90;
     const a = arNorm(card && card.fullName);
     const b = arNorm(rec.fullName);
-    if (a && b && a === b) return 80;
-    if (a && b) {
-      const at = a.split(" ").filter(Boolean);
-      const bt = b.split(" ");
-      const hit = at.filter((t) => bt.indexOf(t) >= 0);
-      if (at.length && hit.length === at.length) return 70;
-      if (hit.length >= 2) return 60;
-    }
+    const fa = arNorm(card && card.fatherName);
+    const fb = arNorm(rec.fatherName);
+    if (a && b && fa && fb && a === b && fa === fb) return 95;
     return 0;
+  }
+  function seesAll() {
+    if (!global.FormSYAuth || !global.FormSYAuth.seesAll) return true;
+    return global.FormSYAuth.seesAll();
+  }
+  function scopeList() {
+    if (seesAll()) return app.roster;
+    const u = global.FormSYAuth.user();
+    return app.roster.filter((r) => r.owner === u);
   }
   function findForCard(card) {
     if (!card) return null;
@@ -205,7 +213,7 @@
 
   function uniqueValues(key) {
     const set = new Set();
-    app.roster.forEach((r) => {
+    scopeList().forEach((r) => {
       const v = String(r[key] || "").trim();
       if (v) set.add(v);
     });
@@ -230,7 +238,7 @@
     });
   }
   function filtered() {
-    return app.roster.filter(passes);
+    return scopeList().filter(passes);
   }
 
   function fillSelect(sel, values, current) {
@@ -269,7 +277,7 @@
     const rows = filtered();
     const box = document.getElementById("roster-list");
     const meta = document.getElementById("roster-count");
-    if (meta) meta.textContent = rows.length + " من " + app.roster.length + " موظف";
+    if (meta) meta.textContent = rows.length + " من " + scopeList().length + " موظف";
     if (!box) return;
     if (!rows.length) {
       box.innerHTML = "<div class='empty-list'>لا نتائج — غيّر البحث أو التصفية</div>";
@@ -300,10 +308,12 @@
     if (link) {
       if (card) {
         link.innerHTML = "مرتبطة بالبطاقة الذاتية: <b>" + esc(card.fullName || "") + "</b>" +
-          (card.nationalId ? " — " + esc(card.nationalId) : "");
+          (card.nationalId ? " — " + esc(card.nationalId) : "") +
+          (rec.owner ? " — المُدخل: " + esc(rec.owner) : "");
         link.className = "link-state ok";
       } else {
-        link.textContent = "لا توجد بطاقة ذاتية مطابقة — يمكن إنشاؤها من هذا السجل";
+        link.textContent = "لا توجد بطاقة ذاتية مطابقة — يمكن إنشاؤها من هذا السجل" +
+          (rec.owner ? " — المُدخل: " + rec.owner : "");
         link.className = "link-state";
       }
     }
@@ -321,6 +331,7 @@
       if (node) rec[f.key] = node.value;
     });
     rec.updatedAt = new Date().toISOString();
+    if (!rec.owner && global.FormSYAuth && global.FormSYAuth.user()) rec.owner = global.FormSYAuth.user();
     rec.birthPlaceDate = [rec.birthPlace, rec.birthDate].filter(Boolean).join(" ");
     rec.residence = [rec.residenceGov, rec.residencePlace].filter(Boolean).join(" ");
     rec.qualification = rec.qualForAppointment || rec.certType || rec.qualification || "";
@@ -402,11 +413,48 @@
     renderStats("report-stats", rows);
   }
 
+  function renderRosterTable() {
+    const table = document.getElementById("roster-table");
+    if (!table) return;
+    const cols = [
+      ["fullName", "الاسم"],
+      ["fatherName", "اسم الأب"],
+      ["nationalId", "الرقم الوطني"],
+      ["jobTitle", "المسمى"],
+      ["unit", "الوحدة"],
+      ["category", "الفئة"],
+      ["status", "الحالة"],
+      ["phone", "الهاتف"],
+    ];
+    if (seesAll()) cols.push(["owner", "المُدخل"]);
+    const rows = filtered();
+    const head = cols.map((c) => "<th>" + esc(c[1]) + "</th>").join("");
+    const body = rows.map((r, i) =>
+      "<tr data-id=\"" + esc(r.id) + "\"><td class='idx'>" + (i + 1) + "</td>" +
+      cols.map((c) => "<td>" + esc(r[c[0]] || "") + "</td>").join("") + "</tr>"
+    ).join("") || "<tr><td colspan='" + (cols.length + 1) + "'>لا صفوف</td></tr>";
+    table.innerHTML = "<thead><tr><th>ت</th>" + head + "</tr></thead><tbody>" + body + "</tbody>";
+  }
+
+  function setRegistryMode(mode) {
+    app.tableMode = mode === "table";
+    const view = document.getElementById("view-registry");
+    const wrap = document.getElementById("roster-table-wrap");
+    if (view) view.classList.toggle("mode-table", app.tableMode);
+    if (wrap) wrap.classList.toggle("hidden", !app.tableMode);
+    const a = document.getElementById("btnRegForm");
+    const b = document.getElementById("btnRegTable");
+    if (a) a.classList.toggle("active", !app.tableMode);
+    if (b) b.classList.toggle("active", app.tableMode);
+    if (app.tableMode) renderRosterTable();
+  }
+
   function renderAll() {
     refreshFilterOptions();
     renderList();
     fillForm();
     renderPreview();
+    renderRosterTable();
     renderStats("registry-stats", filtered());
   }
 
@@ -420,13 +468,17 @@
 
   function mergeRoster(incoming, overwriteEmpty) {
     let added = 0, updated = 0;
+    function same(rec, r) {
+      if ((rec.owner || "") !== (r.owner || "")) return false;
+      if (rec.nationalId && r.nationalId && rec.nationalId === r.nationalId) return true;
+      if (rec.id && r.id === rec.id) return true;
+      const name = arNorm(rec.fullName);
+      const father = arNorm(rec.fatherName);
+      return !!(name && father && name === arNorm(r.fullName) && father === arNorm(r.fatherName) && !rec.nationalId);
+    }
     incoming.forEach((raw) => {
       const rec = hydrate(raw);
-      const hit = app.roster.find((r) =>
-        (rec.nationalId && r.nationalId && rec.nationalId === r.nationalId) ||
-        (rec.id && r.id === rec.id) ||
-        (arNorm(rec.fullName) && arNorm(rec.fullName) === arNorm(r.fullName) && !rec.nationalId)
-      );
+      const hit = app.roster.find((r) => same(rec, r));
       if (!hit) {
         app.roster.push(rec);
         added += 1;
@@ -434,17 +486,12 @@
         let ch = false;
         Object.keys(rec).forEach((k) => {
           if (k === "id") return;
-          if (rec[k] && (overwriteEmpty ? !hit[k] : true)) {
-            if (!hit[k] || overwriteEmpty) {
-              if (!hit[k] && rec[k]) { hit[k] = rec[k]; ch = true; }
-            }
-          }
           if (!hit[k] && rec[k]) { hit[k] = rec[k]; ch = true; }
         });
         if (ch) updated += 1;
       }
     });
-    persist();
+    persist({ sync: false });
     return { added, updated };
   }
 
@@ -647,6 +694,7 @@
     if (btnNew) btnNew.onclick = () => {
       if (app.dirty) readForm();
       const rec = blankRecord();
+      if (global.FormSYAuth && global.FormSYAuth.user()) rec.owner = global.FormSYAuth.user();
       app.roster.unshift(rec);
       app.currentId = rec.id;
       persist();
@@ -666,6 +714,20 @@
     };
     const btnOpen = document.getElementById("btnOpenCard");
     if (btnOpen) btnOpen.onclick = openLinkedCard;
+    const btnForm = document.getElementById("btnRegForm");
+    const btnTable = document.getElementById("btnRegTable");
+    if (btnForm) btnForm.onclick = () => setRegistryMode("form");
+    if (btnTable) btnTable.onclick = () => setRegistryMode("table");
+    const tableWrap = document.getElementById("roster-table-wrap");
+    if (tableWrap && !tableWrap.dataset.bound) {
+      tableWrap.dataset.bound = "1";
+      tableWrap.addEventListener("click", (e) => {
+        const tr = e.target.closest("tr[data-id]");
+        if (!tr) return;
+        selectRecord(tr.dataset.id);
+        setRegistryMode("form");
+      });
+    }
     const btnPrint = document.getElementById("btnPrintReport");
     if (btnPrint) btnPrint.onclick = printReport;
     const btnExp = document.getElementById("btnExportReport");
@@ -721,12 +783,15 @@
   }
 
   function upsertFromCard(card) {
-    if (!card) return;
+    if (!card) return { rec: null, created: false };
     let rec = findForCard(card);
+    let created = false;
     if (!rec) {
       rec = blankRecord();
       rec.source = "من البطاقة الذاتية";
+      rec.owner = (global.FormSYAuth && global.FormSYAuth.user()) || card.owner || "";
       app.roster.push(rec);
+      created = true;
     }
     const map = [
       ["fullName", "fullName"], ["fatherName", "fatherName"], ["motherName", "motherName"],
@@ -745,7 +810,7 @@
       if (last.category && !rec.category) rec.category = last.category;
     }
     persist();
-    return rec;
+    return { rec: rec, created: created };
   }
 
   function init(bridge) {
@@ -765,7 +830,7 @@
     openRecordForCard,
     upsertFromCard,
     current,
-    getRoster: () => app.roster,
+    getRoster: () => scopeList(),
     FIELDS,
   };
 })(window);

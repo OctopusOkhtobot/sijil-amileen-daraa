@@ -68,27 +68,15 @@ body::before {
   align-items: center;
   gap: 10px;
   margin-left: auto;
-  min-width: 220px;
-}
-
-.brand-mark {
-  width: 36px;
-  height: 36px;
-  border: 1.5px solid var(--gold);
-  display: grid;
-  place-items: center;
-  color: var(--gold);
-  font-family: var(--title-font);
-  font-weight: 700;
-  font-size: 18px;
-  background: rgba(197, 164, 110, 0.08);
+  min-width: 280px;
 }
 
 .brand h1 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
+  line-height: 1.35;
 }
 
 .brand p {
@@ -115,6 +103,16 @@ body::before {
 .toolbar .btn.primary {
   background: #9c0006;
   border-color: #7a0004;
+}
+.toolbar .btn.active {
+  background: var(--gold);
+  color: #1a1408;
+  font-weight: 700;
+}
+.who {
+  font-size: 12px;
+  color: var(--gold);
+  white-space: nowrap;
 }
 
 .toolbar .btn.ok {
@@ -1064,3 +1062,56 @@ input[data-field="endServiceDate"] {
   .hr-app, .report-layout { grid-template-columns: 1fr; }
   .hr-side, .report-controls { max-height: none; }
 }
+
+body.auth-locked > *:not(#auth-gate) { display: none !important; }
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6, 22, 18, 0.72);
+}
+.auth-card {
+  width: min(440px, 100%);
+}
+.auth-card {
+  background: #0b1f3a;
+  color: #f7f2e8;
+  border-top: 4px solid var(--gold);
+  padding: 22px 20px 18px;
+  box-shadow: var(--shadow);
+}
+.auth-card h2 { margin: 0 0 8px; font-size: 20px; }
+.auth-lead, .auth-card .hint, .cloud-card .hint { font-size: 13px; line-height: 1.6; opacity: 0.9; }
+.auth-card label, .cloud-card label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 13px; }
+.auth-card input, .cloud-card input {
+  border: 1px solid rgba(197, 164, 110, 0.45);
+  background: #10243f;
+  color: #fff;
+  padding: 8px 10px;
+  font: inherit;
+}
+.auth-actions, .cloud-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.auth-card .btn, .cloud-card .btn { background: #163052; color: #f7f2e8; border: 1px solid rgba(197, 164, 110, 0.45); }
+.auth-card .btn.ok, .cloud-card .btn.ok { background: #0f7b4c; }
+#view-registry.mode-table { grid-template-columns: 1fr; }
+#view-registry.mode-table .hr-side,
+#view-registry.mode-table .hr-main { display: none; }
+.roster-table-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 118px);
+  background: #fff;
+  padding: 12px;
+}
+.roster-table-wrap tr[data-id] { cursor: pointer; }
+.user-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(197, 164, 110, 0.25);
+}
+.user-row span { opacity: 0.85; font-size: 12px; }

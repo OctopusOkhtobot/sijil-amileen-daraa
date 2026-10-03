@@ -1,4 +1,4 @@
-/* Excel export: 2 official sheets per employee + auto tables on sheets 3 and 4 */
+/* Excel export: صفحتان رسميتان لكل موظف */
 (function (global) {
   const NAVY = "002060";
   const RED = "9C0006";
@@ -550,8 +550,6 @@
       buildFace1(wb, card, a);
       buildFace2(wb, card, b);
     });
-    buildChangesTable(wb, cards || []);
-    buildLeaveTable(wb, cards || []);
 
     const buf = await wb.xlsx.writeBuffer();
     try { await idbPut(buf); } catch (e) {}

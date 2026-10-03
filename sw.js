@@ -1,4 +1,4 @@
-const CACHE = "formsy-v12-upload";
+const CACHE = "formsy-v13-auth";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,7 @@ const ASSETS = [
   "./excel-export.js",
   "./excel-import.js",
   "./hr.js",
+  "./auth.js",
   "./cloud-sync.js",
   "./data/seed.js",
   "./exceljs.min.js",

@@ -5,19 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1f3a">
   <meta name="description" content="البطاقة الذاتية للعاملين في الدولة — الجمهورية العربية السورية">
-  <title>السجل العام للعاملين — مديرية الشؤون الاجتماعية والعمل بدرعا</title>
+  <title>السجل العام للعاملين في الدولة — وزارة التنمية الإدارية</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div id="auth-gate" class="auth-gate">
+    <form id="auth-card" class="auth-card" autocomplete="off">
+      <h2 id="auth-title">الدخول إلى السجل</h2>
+      <p id="auth-lead" class="auth-lead"></p>
+      <label>اسم المستخدم
+        <input id="auth-user" autocomplete="username">
+      </label>
+      <label>كلمة المرور
+        <input id="auth-pass" type="password" autocomplete="current-password">
+      </label>
+      <label id="auth-pass2-label" class="hidden">تأكيد كلمة المرور
+        <input id="auth-pass2" type="password" autocomplete="new-password">
+      </label>
+      <div class="auth-actions">
+        <button type="submit" class="btn ok" id="auth-submit">دخول</button>
+        <button type="button" class="btn" id="auth-switch">تسجيل مدخل بيانات</button>
+      </div>
+      <p id="auth-msg" class="cloud-msg"></p>
+    </form>
+  </div>
   <header class="toolbar no-print">
     <div class="brand">
-      <div class="brand-mark">ب</div>
       <div>
-        <h1>السجل العام للعاملين</h1>
-        <p>مديرية الشؤون الاجتماعية والعمل بدرعا</p>
+        <h1>السجل العام للعاملين في الدولة</h1>
+        <p>وزارة التنمية الإدارية</p>
       </div>
     </div>
     <nav class="view-tabs" id="viewTabs">
@@ -26,7 +45,10 @@
       <button type="button" data-view="report">التقارير والإحصاء</button>
     </nav>
     <span class="status" id="status"></span>
+    <span class="who" id="whoami"></span>
+    <button type="button" class="btn hidden" id="btnUsers">المستخدمون</button>
     <button type="button" class="btn gold" id="btnCloud">الربط السحابي</button>
+    <button type="button" class="btn" id="btnLogout">خروج</button>
   </header>
 
   <div class="toolbar subbar no-print" id="bar-card">
@@ -46,6 +68,7 @@
     <label class="btn" for="fileFolder">استيراد مجلد بطاقات</label>
     <input id="fileFolder" type="file" accept=".xlsx,.xls" multiple webkitdirectory hidden>
     <button type="button" class="btn" id="btnOpenRoster">فتح السجل المرتبط</button>
+    <button type="button" class="btn ok" id="btnExportRoster">تصدير إلى سجل الموظفين</button>
     <div class="zoom-wrap">
       <span>تكبير</span>
       <input id="zoom" type="range" min="55" max="130" value="100">
@@ -61,6 +84,8 @@
     <label class="btn" for="fileExcel2">استيراد جدول Excel</label>
     <input id="fileExcel2" type="file" accept=".xlsx,.xls" multiple hidden>
     <button type="button" class="btn" id="btnClearFilters">مسح التصفية</button>
+    <button type="button" class="btn" id="btnRegForm">نموذج الموظف</button>
+    <button type="button" class="btn" id="btnRegTable">جدول السجل</button>
   </div>
 
   <div class="toolbar subbar no-print hidden" id="bar-report">
@@ -77,16 +102,12 @@
     <nav class="page-nav no-print">
       <button data-page="1" class="active">وجه 1 — البطاقة</button>
       <button data-page="2">وجه 2 — الإجازات والمكافآت</button>
-      <button data-page="3">الصفحة 3 — جدول التبدلات</button>
-      <button data-page="4">الصفحة 4 — الإجازات والعقوبات</button>
     </nav>
     <p class="hint-bar no-print">
-      انقر الخانة واكتب كالنموذج. تنقّل بزر <b>Tab</b> — عند الانتقال يُحدَّد محتوى الخانة لتقدر تحذفها كاملة.
-      &nbsp;|&nbsp; التواريخ تُنسَّق تلقائياً مثل <b>01/01/2001</b> (مكان وتاريخ الولادة، تاريخ المباشرة، وسائر خانات التاريخ).
-      &nbsp;|&nbsp; <b>تصدير Excel</b> يحدّث <b>الملف نفسه</b>: صفحتان لكل موظف، والجداول المشتركة تتوالى لكل الموظفين على هذا الجهاز.
-      &nbsp;|&nbsp; <b class="sug">كل سطر تبدل مستقل</b>: أدخل قيمة واحدة في السطر فيُقترح باقي ذلك السطر فقط.
+      انقر الخانة واكتب كالنموذج. تنقّل بزر <b>Tab</b>.
+      الطباعة والتصدير صفحتان فقط: البطاقة، ثم الإجازات والمكافآت.
+      الحفظ يضيف البطاقة إلى سجل الموظفين إذا لم يتطابق الرقم الوطني، أو الاسم مع اسم الأب.
       &nbsp;|&nbsp; <b class="lbl">أزرق</b> تسمية · <b class="val">أسود</b> بيانات · <b class="sug">أحمر</b> اقتراح
-      &nbsp;|&nbsp; بطاقات ملفات الشؤون محمّلة. استورد Excel أو مجلداً، وانتقل إلى <b>سجل الموظفين</b> و<b>التقارير</b> للبحث والإحصاء والطباعة.
     </p>
 
     <div class="stage" id="stage">
@@ -215,68 +236,6 @@
           <div class="clr" id="clearance"></div>
         </div>
       </section>
-
-      <!-- PAGE 3 auto table -->
-      <section class="page" data-page="3">
-        <div class="ledger">
-          <div class="ledger-head">
-            <div class="org">الجمهورية العربية السورية — رئاسة مجلس الوزراء</div>
-            <div class="org">السجل العام للعاملين في الدولة</div>
-            <h3>جدول التبدلات الطارئة</h3>
-            <div class="meta" id="ledger3-meta"></div>
-            <div>الموظف: <span id="ledger3-name">—</span></div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th style="width:6%">ت</th>
-                <th>اسم الموظف</th>
-                <th>الرقم الوطني</th>
-                <th>مركز العمل</th>
-                <th>المسمى الوظيفي</th>
-                <th>تاريخ التبدل</th>
-                <th>السبب</th>
-                <th>نوع المستند</th>
-                <th>رقمه</th>
-                <th>تاريخه</th>
-              </tr>
-            </thead>
-            <tbody id="ledger3-body"></tbody>
-            <tfoot id="ledger3-foot"></tfoot>
-          </table>
-        </div>
-      </section>
-
-      <!-- PAGE 4 auto table -->
-      <section class="page" data-page="4">
-        <div class="ledger">
-          <div class="ledger-head">
-            <div class="org">الجمهورية العربية السورية — رئاسة مجلس الوزراء</div>
-            <div class="org">السجل العام للعاملين في الدولة</div>
-            <h3>جدول الإجازات والمكافآت والعقوبات</h3>
-            <div class="meta" id="ledger4-meta"></div>
-            <div>الموظف: <span id="ledger4-name">—</span></div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th style="width:6%">ت</th>
-                <th>اسم الموظف</th>
-                <th>النوع</th>
-                <th>التفاصيل / الأسباب</th>
-                <th>المدة / الحالة</th>
-                <th>من</th>
-                <th>إلى</th>
-                <th>نوع المستند</th>
-                <th>رقمه</th>
-                <th>تاريخه</th>
-              </tr>
-            </thead>
-            <tbody id="ledger4-body"></tbody>
-            <tfoot id="ledger4-foot"></tfoot>
-          </table>
-        </div>
-      </section>
     </div>
   </div>
 
@@ -299,6 +258,9 @@
       <div id="link-state" class="link-state"></div>
       <div id="registry-stats" class="stats-mini"></div>
       <form id="roster-form" class="roster-form" autocomplete="off"></form>
+    </div>
+    <div id="roster-table-wrap" class="roster-table-wrap hidden">
+      <table id="roster-table" class="preview-table"></table>
     </div>
   </section>
 
@@ -391,6 +353,26 @@
     <option value="أمر إداري">
   </datalist>
 
+  <div id="users-modal" class="cloud-modal hidden no-print" role="dialog" aria-labelledby="users-title">
+    <div class="cloud-card">
+      <header>
+        <h2 id="users-title">المستخدمون — صلاحية المصمم</h2>
+        <button type="button" class="btn" id="btnUsersClose">إغلاق</button>
+      </header>
+      <p class="hint">المصمم يدير الحسابات ويرى كل السجلات ويعدّلها. المدير يرى كل السجلات ويعدّلها. مدخل البيانات يملك سجلاته فقط. تعديل نص البرنامج نفسه يبقى في المستودع حتى لا ينكسر السجل من المتصفح.</p>
+      <div id="users-list"></div>
+      <h3>حساب مدير جديد</h3>
+      <label>اسم المستخدم
+        <input id="mgr-user" autocomplete="off">
+      </label>
+      <label>كلمة المرور
+        <input id="mgr-pass" type="password" autocomplete="new-password">
+      </label>
+      <button type="button" class="btn ok" id="btnMgrCreate">إنشاء مدير</button>
+      <p id="users-msg" class="cloud-msg"></p>
+    </div>
+  </div>
+
   <div id="cloud-modal" class="cloud-modal hidden no-print" role="dialog" aria-labelledby="cloud-title">
     <div class="cloud-card">
       <header>
@@ -433,6 +415,7 @@
   <script src="excel-export.js"></script>
   <script src="excel-import.js"></script>
   <script src="data/seed.js"></script>
+  <script src="auth.js"></script>
   <script src="cloud-sync.js"></script>
   <script src="hr.js"></script>
   <script src="app.js"></script>

@@ -60,6 +60,7 @@
     ["العمر (سنة)", "age"],
     ["سنوات الخدمة", "serviceYears"],
     ["المتبقي للتقاعد", "yearsToRetire"],
+    ["المُدخل", "owner"],
   ];
 
   function cfg() {
@@ -135,10 +136,40 @@
     return res;
   }
 
+  async function rest(method, table, query, body, prefer) {
+    const c = cfg();
+    if (!c.url || !c.anon) return null;
+    const use = { url: c.url, anon: c.anon, table: table || c.table };
+    let res = await viaProxy(use, method === "POST" ? "POST" : "GET", query, body, prefer);
+    if (!res) {
+      try {
+        const headers = {
+          apikey: use.anon,
+          Authorization: "Bearer " + use.anon,
+          Accept: "application/json",
+        };
+        const init = { method: method === "POST" ? "POST" : "GET", mode: "cors", cache: "no-store", headers: headers };
+        if (init.method === "POST") {
+          headers["Content-Type"] = "application/json";
+          if (prefer) headers.Prefer = prefer;
+          init.body = JSON.stringify(body == null ? [] : body);
+        }
+        res = await fetch(use.url + "/rest/v1/" + encodeURIComponent(use.table) + (query ? "?" + query : ""), init);
+      } catch (e) {
+        return null;
+      }
+    }
+    return res;
+  }
+
   async function pull() {
     const c = cfg();
     if (!c.url || !c.anon) return { ok: false, reason: "not-configured", rows: [] };
-    const query = "select=*&limit=2000";
+    let query = "select=*&limit=2000";
+    const auth = global.FormSYAuth && global.FormSYAuth.session && global.FormSYAuth.session();
+    if (auth && auth.role === "clerk") {
+      query += "&" + encodeURIComponent("المُدخل") + "=eq." + encodeURIComponent(auth.user);
+    }
     let res = await viaProxy(c, "GET", query);
     if (!res) {
       try {
@@ -191,12 +222,12 @@
       let sent = await postRows(c, [row], "", "return=minimal");
       const dup = /duplicate|23505|already exists|unique/i.test(sent.reason || "");
       if (!sent.ok && dup && row["الرقم_الوطني"]) {
-        sent = await postRows(
-          c,
-          [row],
-          "on_conflict=" + encodeURIComponent("الرقم_الوطني"),
-          "resolution=merge-duplicates,return=minimal"
-        );
+        const keys = [];
+        if (row["المُدخل"]) keys.push(encodeURIComponent("الرقم_الوطني") + "," + encodeURIComponent("المُدخل"));
+        keys.push(encodeURIComponent("الرقم_الوطني"));
+        for (let k = 0; k < keys.length && !sent.ok; k++) {
+          sent = await postRows(c, [row], "on_conflict=" + keys[k], "resolution=merge-duplicates,return=minimal");
+        }
       }
       if (sent.ok) okCount += 1;
       else if (errors.length < 2) errors.push(sent.reason || "فشل صف");
@@ -238,7 +269,7 @@
     }
   }
 
-  global.FormSYCloud = { cfg, pull, pushRows, queue, hydrateRoster, rowFrom, recFrom, SETUP_SQL: null };
+  global.FormSYCloud = { cfg, pull, pushRows, queue, hydrateRoster, rowFrom, recFrom, rest, SETUP_SQL: null };
   global.addEventListener("message", (e) => {
     if (e && e.data && e.data.type === "formsy-cloud-reload") hydrateRoster();
   });
@@ -248,7 +279,20 @@
     "alter table public.thatea enable row level security;\n" +
     "drop policy if exists thata_office_readwrite on public.thatea;\n" +
     "create policy thata_office_readwrite on public.thatea for all to anon, authenticated using (true) with check (true);\n" +
-    "create unique index if not exists thata_national_id_uidx on public.thatea (\"الرقم_الوطني\") where \"الرقم_الوطني\" is not null and \"الرقم_الوطني\" <> '';\n";
+    "drop index if exists thata_national_id_uidx;\n" +
+    "alter table public.thatea add column if not exists \"المُدخل\" text;\n" +
+    "create unique index if not exists thata_owner_nid_uidx on public.thatea (\"الرقم_الوطني\", \"المُدخل\") where \"الرقم_الوطني\" is not null and \"الرقم_الوطني\" <> '';\n" +
+    "create table if not exists public.sijil_users (\n" +
+    "  username text primary key,\n" +
+    "  pass_hash text not null,\n" +
+    "  salt text not null,\n" +
+    "  role text not null,\n" +
+    "  active boolean not null default true,\n" +
+    "  updated_at timestamptz default now()\n" +
+    ");\n" +
+    "alter table public.sijil_users enable row level security;\n" +
+    "drop policy if exists sijil_users_rw on public.sijil_users;\n" +
+    "create policy sijil_users_rw on public.sijil_users for all to anon, authenticated using (true) with check (true);\n";
   global.FormSYCloud.SETUP_SQL = SETUP_SQL;
 
   function readCloudFields(rawUrl, rawKey, rawTable) {

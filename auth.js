@@ -1,0 +1,380 @@
+/* دخول محلي مع مزامنة اختيارية لجدول sijil_users. لا حلقة: السحب لا يستدعي الدفع. */
+(function (global) {
+  const USERS_KEY = "formSY.users.v1";
+  const SESSION_KEY = "formSY.session.v1";
+  const ROLES = { designer: "المصمم", manager: "مدير", clerk: "مدخل بيانات" };
+
+  let mode = "login";
+  let syncing = false;
+
+  function loadUsers() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function saveUsers(list) {
+    localStorage.setItem(USERS_KEY, JSON.stringify(list));
+  }
+  function hasDesigner(list) {
+    return (list || loadUsers()).some((u) => u.role === "designer" && u.active !== false);
+  }
+  function session() {
+    try {
+      const s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+      if (!s || !s.user || !s.role || !s.exp || s.exp < Date.now()) return null;
+      if (!ROLES[s.role]) return null;
+      return s;
+    } catch (e) {
+      return null;
+    }
+  }
+  function seesAll() {
+    const s = session();
+    return !!(s && (s.role === "designer" || s.role === "manager"));
+  }
+  function user() {
+    const s = session();
+    return s ? s.user : "";
+  }
+  function roleLabel(role) {
+    return ROLES[role] || role;
+  }
+
+  async function sha256(text) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function randomSalt() {
+    const a = new Uint8Array(16);
+    crypto.getRandomValues(a);
+    return Array.from(a).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  async function hashPassword(password, salt) {
+    return sha256(salt + "\n" + password);
+  }
+
+  function lock() {
+    document.body.classList.add("auth-locked");
+    const gate = document.getElementById("auth-gate");
+    if (gate) gate.classList.remove("hidden");
+  }
+  function unlock() {
+    document.body.classList.remove("auth-locked");
+    const gate = document.getElementById("auth-gate");
+    if (gate) gate.classList.add("hidden");
+  }
+
+  function applyChrome() {
+    const s = session();
+    const who = document.getElementById("whoami");
+    if (who) who.textContent = s ? s.user + " · " + roleLabel(s.role) : "";
+    const usersBtn = document.getElementById("btnUsers");
+    if (usersBtn) usersBtn.classList.toggle("hidden", !s || s.role !== "designer");
+    const cloud = document.getElementById("btnCloud");
+    if (cloud) cloud.classList.toggle("hidden", !!(s && s.role === "clerk"));
+  }
+
+  function enter(rec) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+      user: rec.username,
+      role: rec.role,
+      exp: Date.now() + 12 * 60 * 60 * 1000,
+    }));
+    applyChrome();
+    global.dispatchEvent(new CustomEvent("formsy-auth", { detail: { type: "login", user: rec.username, role: rec.role } }));
+    unlock();
+  }
+
+  async function pullUsers() {
+    if (syncing) return false;
+    if (!global.FormSYCloud || !global.FormSYCloud.rest) return false;
+    const cfg = global.FormSYCloud.cfg && global.FormSYCloud.cfg();
+    if (!cfg || !cfg.url || !cfg.anon) return false;
+    syncing = true;
+    try {
+      const res = await global.FormSYCloud.rest(
+        "GET",
+        "sijil_users",
+        "select=username,pass_hash,salt,role,active,updated_at&limit=500"
+      );
+      if (!res || !res.ok) return false;
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return false;
+      const local = loadUsers();
+      rows.forEach((row) => {
+        if (!row || !row.username || !ROLES[row.role]) return;
+        const rec = {
+          username: String(row.username),
+          passHash: row.pass_hash || "",
+          salt: row.salt || "",
+          role: row.role,
+          active: row.active !== false,
+          updatedAt: row.updated_at || "",
+        };
+        const i = local.findIndex((u) => u.username === rec.username);
+        if (i < 0) local.push(rec);
+        else if (String(rec.updatedAt) >= String(local[i].updatedAt || "")) local[i] = rec;
+      });
+      saveUsers(local);
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      syncing = false;
+    }
+  }
+
+  async function pushUsers(list) {
+    if (syncing) return false;
+    if (!global.FormSYCloud || !global.FormSYCloud.rest) return false;
+    const cfg = global.FormSYCloud.cfg && global.FormSYCloud.cfg();
+    if (!cfg || !cfg.url || !cfg.anon) return false;
+    const body = (list || []).filter((u) => u && u.username && u.passHash && u.salt).map((u) => ({
+      username: u.username,
+      pass_hash: u.passHash,
+      salt: u.salt,
+      role: u.role,
+      active: u.active !== false,
+      updated_at: u.updatedAt || new Date().toISOString(),
+    }));
+    if (!body.length) return false;
+    syncing = true;
+    try {
+      const res = await global.FormSYCloud.rest(
+        "POST",
+        "sijil_users",
+        "on_conflict=username",
+        body,
+        "resolution=merge-duplicates,return=minimal"
+      );
+      return !!(res && res.ok);
+    } catch (e) {
+      return false;
+    } finally {
+      syncing = false;
+    }
+  }
+
+  function cleanName(v) {
+    return String(v || "").replace(/\s+/g, " ").trim();
+  }
+
+  async function addUser(username, password, role) {
+    const name = cleanName(username);
+    if (name.length < 2 || name.length > 40) return "اسم المستخدم بين حرفين و40";
+    if (String(password || "").length < 6) return "كلمة المرور 6 أحرف على الأقل";
+    if (!ROLES[role]) return "صلاحية غير معروفة";
+    const list = loadUsers();
+    if (list.some((u) => u.username === name)) return "اسم المستخدم مستخدم";
+    if (role === "designer" && hasDesigner(list)) return "حساب المصمم موجود مسبقاً";
+    const salt = randomSalt();
+    list.push({
+      username: name,
+      passHash: await hashPassword(password, salt),
+      salt: salt,
+      role: role,
+      active: true,
+      updatedAt: new Date().toISOString(),
+    });
+    saveUsers(list);
+    await pushUsers(list);
+    return "";
+  }
+
+  function renderMode() {
+    const title = document.getElementById("auth-title");
+    const lead = document.getElementById("auth-lead");
+    const pass2 = document.getElementById("auth-pass2-label");
+    const submit = document.getElementById("auth-submit");
+    const sw = document.getElementById("auth-switch");
+    const userEl = document.getElementById("auth-user");
+    if (pass2) pass2.classList.toggle("hidden", mode === "login");
+    if (mode === "setup") {
+      if (title) title.textContent = "إعداد حساب المصمم";
+      if (lead) lead.textContent = "أول تشغيل: هذا الحساب يرى كل السجلات ويدير المستخدمين. يُحفظ على هذا الجهاز ويُرفع للسحابة إذا كان الربط جاهزاً.";
+      if (submit) submit.textContent = "إنشاء والدخول";
+      if (sw) sw.classList.add("hidden");
+      if (userEl && !userEl.value) userEl.value = "مصمم";
+    } else if (mode === "register") {
+      if (title) title.textContent = "تسجيل مدخل بيانات";
+      if (lead) lead.textContent = "حساب مستقل. ترى سجلاتك فقط، ولا ترى سجلات بقية المدخلين.";
+      if (submit) submit.textContent = "إنشاء الحساب";
+      if (sw) { sw.classList.remove("hidden"); sw.textContent = "العودة للدخول"; }
+    } else {
+      if (title) title.textContent = "الدخول إلى السجل";
+      if (lead) lead.textContent = "مدير ومصمم: كل السجلات. مدخل بيانات: سجلاته فقط.";
+      if (submit) submit.textContent = "دخول";
+      if (sw) { sw.classList.remove("hidden"); sw.textContent = "تسجيل مدخل بيانات"; }
+    }
+  }
+
+  function setMsg(text, ok) {
+    const msg = document.getElementById("auth-msg");
+    if (!msg) return;
+    msg.textContent = text || "";
+    msg.className = "cloud-msg " + (ok === true ? "ok" : ok === false ? "err" : "");
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    const name = cleanName(document.getElementById("auth-user").value);
+    const pass = document.getElementById("auth-pass").value || "";
+    const pass2el = document.getElementById("auth-pass2");
+    const pass2 = pass2el ? pass2el.value : "";
+    setMsg("جاري التحقق…");
+    await pullUsers();
+    if (mode === "setup") {
+      if (pass !== pass2) { setMsg("كلمتا المرور غير متطابقتين", false); return; }
+      const err = await addUser(name || "مصمم", pass, "designer");
+      if (err) { setMsg(err, false); return; }
+      const rec = loadUsers().find((u) => u.username === (name || "مصمم"));
+      setMsg("");
+      enter(rec);
+      return;
+    }
+    if (mode === "register") {
+      if (!hasDesigner()) { setMsg("أنشئ حساب المصمم أولاً", false); mode = "setup"; renderMode(); return; }
+      if (pass !== pass2) { setMsg("كلمتا المرور غير متطابقتين", false); return; }
+      const err = await addUser(name, pass, "clerk");
+      if (err) { setMsg(err, false); return; }
+      const rec = loadUsers().find((u) => u.username === name);
+      setMsg("");
+      enter(rec);
+      return;
+    }
+    const rec = loadUsers().find((u) => u.username === name);
+    if (!rec || rec.active === false) { setMsg("الحساب غير موجود أو موقوف", false); return; }
+    const hash = await hashPassword(pass, rec.salt || "");
+    if (hash !== rec.passHash) { setMsg("كلمة المرور غير صحيحة", false); return; }
+    setMsg("");
+    enter(rec);
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&" + "amp;")
+      .replace(/</g, "&" + "lt;")
+      .replace(/"/g, "&" + "quot;");
+  }
+  function renderUsers() {
+    const box = document.getElementById("users-list");
+    if (!box) return;
+    const list = loadUsers();
+    if (!list.length) {
+      box.innerHTML = "<p class='hint'>لا حسابات.</p>";
+      return;
+    }
+    box.innerHTML = list.map((u) => {
+      const off = u.active === false;
+      return (
+        "<div class='user-row' data-user=\"" + esc(u.username) + "\">" +
+          "<b>" + esc(u.username) + "</b>" +
+          "<span>" + esc(roleLabel(u.role) + (off ? " — موقوف" : "")) + "</span>" +
+          (u.role === "designer" ? "" :
+            "<button type='button' class='btn' data-act='toggle'>" + (off ? "تفعيل" : "إيقاف") + "</button>" +
+            "<button type='button' class='btn' data-act='reset'>كلمة مرور</button>") +
+        "</div>"
+      );
+    }).join("");
+  }
+
+  async function openUsers() {
+    const s = session();
+    if (!s || s.role !== "designer") return;
+    const modal = document.getElementById("users-modal");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    const msg = document.getElementById("users-msg");
+    if (msg) msg.textContent = "جاري مزامنة الحسابات…";
+    await pullUsers();
+    await pushUsers(loadUsers());
+    renderUsers();
+    if (msg) msg.textContent = "الحسابات على هذا الجهاز. تُرفع إلى Supabase إذا شُغّل SQL جدول sijil_users.";
+  }
+
+  function bind() {
+    lock();
+    const form = document.getElementById("auth-card");
+    if (form) form.addEventListener("submit", onSubmit);
+    const sw = document.getElementById("auth-switch");
+    if (sw) sw.onclick = () => {
+      mode = mode === "register" ? "login" : "register";
+      setMsg("");
+      renderMode();
+    };
+    const usersBtn = document.getElementById("btnUsers");
+    if (usersBtn) usersBtn.onclick = () => { openUsers(); };
+    const close = document.getElementById("btnUsersClose");
+    const modal = document.getElementById("users-modal");
+    if (close && modal) close.onclick = () => modal.classList.add("hidden");
+    if (modal) modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.add("hidden"); });
+    const list = document.getElementById("users-list");
+    if (list) list.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      const row = btn.closest(".user-row");
+      if (!row) return;
+      const name = row.dataset.user;
+      const users = loadUsers();
+      const rec = users.find((u) => u.username === name);
+      if (!rec || rec.role === "designer") return;
+      if (btn.dataset.act === "toggle") rec.active = rec.active === false;
+      if (btn.dataset.act === "reset") {
+        const next = global.prompt("كلمة مرور جديدة لـ " + name);
+        if (!next) return;
+        if (String(next).length < 6) { global.alert("6 أحرف على الأقل"); return; }
+        rec.salt = randomSalt();
+        rec.passHash = await hashPassword(next, rec.salt);
+      }
+      rec.updatedAt = new Date().toISOString();
+      saveUsers(users);
+      await pushUsers(users);
+      renderUsers();
+    });
+    const create = document.getElementById("btnMgrCreate");
+    if (create) create.onclick = async () => {
+      const msg = document.getElementById("users-msg");
+      const name = document.getElementById("mgr-user").value;
+      const pass = document.getElementById("mgr-pass").value;
+      const err = await addUser(name, pass, "manager");
+      if (msg) msg.textContent = err || "تم إنشاء المدير";
+      if (!err) {
+        document.getElementById("mgr-user").value = "";
+        document.getElementById("mgr-pass").value = "";
+        renderUsers();
+      }
+    };
+    const out = document.getElementById("btnLogout");
+    if (out) out.onclick = () => {
+      sessionStorage.removeItem(SESSION_KEY);
+      location.reload();
+    };
+    renderMode();
+    if (session()) {
+      applyChrome();
+      unlock();
+    }
+    pullUsers().then(() => {
+      if (!session() && !hasDesigner()) {
+        mode = "setup";
+        renderMode();
+      }
+    });
+  }
+
+  global.FormSYAuth = {
+    session: session,
+    seesAll: seesAll,
+    user: user,
+    roleLabel: roleLabel,
+    applyChrome: applyChrome,
+    pullUsers: pullUsers,
+    pushUsers: pushUsers,
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+})(window);

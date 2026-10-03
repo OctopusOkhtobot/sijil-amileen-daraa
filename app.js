@@ -184,21 +184,41 @@
     if (raw.id) c.id = raw.id;
     else if (raw.nationalId) c.id = "nid-" + raw.nationalId;
     else if (raw.fullName) c.id = "nm-" + String(raw.fullName).replace(/\s+/g, "").slice(0, 28);
+    if (raw.owner) c.owner = String(raw.owner);
     return c;
+  }
+  function cardPool() {
+    if (!window.FormSYAuth || window.FormSYAuth.seesAll()) return state.cards;
+    const u = window.FormSYAuth.user();
+    return state.cards.filter((c) => c.owner === u);
+  }
+  function ensureCurrentInScope() {
+    const list = cardPool();
+    if (!list.length) {
+      const c = blankCard();
+      if (window.FormSYAuth && window.FormSYAuth.user()) c.owner = window.FormSYAuth.user();
+      state.cards.push(c);
+      state.currentId = c.id;
+      return;
+    }
+    if (!list.some((c) => c.id === state.currentId)) state.currentId = list[0].id;
   }
   function findCardMatch(incoming) {
     const nid = digitsOnly(incoming.nationalId);
     const name = arNorm(incoming.fullName);
-    return state.cards.find((c) => {
+    return cardPool().find((c) => {
       if (nid && digitsOnly(c.nationalId) === nid) return true;
       if (incoming.id && c.id === incoming.id) return true;
-      if (name && arNorm(c.fullName) === name) return true;
+      if (name && arNorm(c.fullName) === name && arNorm(incoming.fatherName) && arNorm(c.fatherName) === arNorm(incoming.fatherName)) return true;
       return false;
     }) || null;
   }
   function mergeIncomingCard(incoming) {
     const hit = findCardMatch(incoming);
     if (!hit) {
+      if (!incoming.owner && window.FormSYAuth && window.FormSYAuth.user()) {
+        incoming.owner = window.FormSYAuth.user();
+      }
       state.cards.push(incoming);
       return "added";
     }
@@ -541,9 +561,11 @@
   }
 
   function renderLedgers() {
-    const card = current();
     const t3 = document.getElementById("ledger3-body");
     const t4 = document.getElementById("ledger4-body");
+    if (!t3 || !t4) return;
+    const card = current();
+    if (!card) return;
     const rows = [];
     (card.jobs || []).forEach((r) => {
       if (!changeFilled(r) && !(r.workplace || r.title || r.wage || r.startDate)) return;
@@ -613,13 +635,14 @@
     const q = arNorm(qEl && qEl.value);
     const qd = digitsOnly(qEl && qEl.value);
     sel.innerHTML = "";
-    const list = state.cards.filter((c, i) => {
+    const pool = cardPool();
+    const list = pool.filter((c, i) => {
       if (!q && !qd) return true;
       const blob = arNorm((c.fullName || "") + " " + (c.fatherName || "") + " " + (c.agency || ""));
       const nid = digitsOnly(c.nationalId);
       return (q && blob.indexOf(q) >= 0) || (qd && nid.indexOf(qd) >= 0);
     });
-    (list.length ? list : state.cards).forEach((c, i) => {
+    (list.length ? list : pool).forEach((c, i) => {
       const o = document.createElement("option");
       o.value = c.id;
       o.textContent = (c.fullName || ("بطاقة " + (i + 1))) + (c.nationalId ? " — " + c.nationalId : "");
@@ -641,6 +664,7 @@
   }
 
   function showPage(n, instant) {
+    if (n > 2 || n < 1) n = 1;
     state.page = n;
     document.querySelectorAll(".page-nav button").forEach((b) => {
       b.classList.toggle("active", Number(b.dataset.page) === n);
@@ -658,11 +682,18 @@
 
   function saveCard() {
     const card = current();
+    if (!card) return;
+    if (window.FormSYAuth && window.FormSYAuth.user() && !card.owner) card.owner = window.FormSYAuth.user();
     card.updatedAt = new Date().toISOString();
     persist();
     state.dirty = false;
-    if (window.FormSYHR) window.FormSYHR.upsertFromCard(card);
-    setStatus("تم الحفظ محلياً — " + (card.fullName || "بطاقة بلا اسم"), true);
+    let note = "تم الحفظ محلياً — " + (card.fullName || "بطاقة بلا اسم");
+    if (window.FormSYHR && (card.fullName || card.nationalId)) {
+      const up = window.FormSYHR.upsertFromCard(card);
+      if (up && up.created) note = "تم الحفظ وأُضيف إلى سجل الموظفين — " + (card.fullName || "");
+      else if (up && up.rec) note = "تم الحفظ — السجل مطابق ومحدّث — " + (card.fullName || "");
+    }
+    setStatus(note, true);
     refreshSelect();
   }
 
@@ -673,8 +704,9 @@
 
   function newCard() {
     const cur = current();
-    if (cardHasData(cur) || state.dirty) saveCard();
+    if (cur && (cardHasData(cur) || state.dirty)) saveCard();
     const c = blankCard();
+    if (window.FormSYAuth && window.FormSYAuth.user()) c.owner = window.FormSYAuth.user();
     state.cards.push(c);
     state.currentId = c.id;
     persist();
@@ -716,7 +748,7 @@
     setStatus("جاري التصدير إلى الملف نفسه…");
     try {
       const name = await window.FormSYExport.exportCards(state.cards);
-      setStatus("تم الحفظ في الملف نفسه: " + name + " — صفحتان لكل موظف، والجداول مشتركة ومتتالية", true);
+      setStatus("تم الحفظ: " + name + " — صفحتان لكل موظف", true);
     } catch (e) {
       console.error(e);
       setStatus("فشل التصدير: " + (e.message || e), false);
@@ -805,6 +837,7 @@
     c.jobs[0].category = rec.category || "";
     c.jobs[0].startDate = rec.appointmentDate || rec.stateWorkDate || "";
     if (rec.nationalId) c.id = "nid-" + rec.nationalId;
+    if (window.FormSYAuth && window.FormSYAuth.user()) c.owner = window.FormSYAuth.user();
     state.cards.push(c);
     state.currentId = c.id;
     persist();
@@ -908,11 +941,23 @@
       btnOpenRoster.onclick = () => {
         if (!window.FormSYHR) return;
         const card = current();
-        let rec = window.FormSYHR.findForCard(card);
-        if (!rec) rec = window.FormSYHR.upsertFromCard(card);
+        const up = window.FormSYHR.upsertFromCard(card);
+        const rec = up && up.rec;
         window.FormSYHR.openRecordForCard(card);
         showView("registry");
         setStatus("السجل المرتبط: " + ((rec && rec.fullName) || card.fullName || ""), true);
+      };
+    }
+    const btnExportRoster = document.getElementById("btnExportRoster");
+    if (btnExportRoster) {
+      btnExportRoster.onclick = () => {
+        if (!window.FormSYHR) return;
+        const card = current();
+        if (card && window.FormSYAuth && window.FormSYAuth.user() && !card.owner) card.owner = window.FormSYAuth.user();
+        const up = window.FormSYHR.upsertFromCard(card);
+        if (up && up.rec) window.FormSYHR.openRecordForCard(card);
+        showView("registry");
+        setStatus(up && up.created ? "أُنشئ سجل جديد في سجل الموظفين" : "السجل موجود — تم فتحه", true);
       };
     }
     const cf2 = document.getElementById("btnClearFilters2");
@@ -945,44 +990,57 @@
     }
   }
 
-  loadStore();
-  const seed = window.FORMSY_SEED;
-  const seedCards = applySeedCards(seed, false);
-  bind();
-  if (window.FormSYHR) {
-    window.FormSYHR.init({
-      getCards: () => state.cards,
-      setStatus,
-      openCard: (id) => {
-        if (id) switchCard(id);
-        showView("card");
-      },
-      createCardFromRoster,
-      syncCardFromRoster,
-    });
-    if (seed) window.FormSYHR.applySeed(seed, false);
-    window.FormSYHR.renderAll();
-    if (window.FormSYCloud) window.FormSYCloud.hydrateRoster();
-  }
-  renderCard();
-  applyZoom();
-  registerSW();
-  const nR = window.FormSYHR ? window.FormSYHR.getRoster().length : 0;
-  const seedNote = seedCards.skipped ? "" : " — استُوردت بطاقات الشؤون";
-  setStatus("جاهز — " + state.cards.length + " بطاقة · " + nR + " سجل" + seedNote);
+  function startApp() {
+    if (window.__formsyStarted) return;
+    window.__formsyStarted = true;
+    if (window.FormSYAuth) window.FormSYAuth.applyChrome();
+    loadStore();
+    ensureCurrentInScope();
+    const seed = window.FORMSY_SEED;
+    const seedCards = applySeedCards(seed, false);
+    bind();
+    if (window.FormSYHR) {
+      window.FormSYHR.init({
+        getCards: () => cardPool(),
+        setStatus,
+        openCard: (id) => {
+          if (id) switchCard(id);
+          showView("card");
+        },
+        createCardFromRoster,
+        syncCardFromRoster,
+      });
+      if (seed) window.FormSYHR.applySeed(seed, false);
+      window.FormSYHR.renderAll();
+      if (window.FormSYCloud) window.FormSYCloud.hydrateRoster();
+    }
+    renderCard();
+    applyZoom();
+    registerSW();
+    const nR = window.FormSYHR ? window.FormSYHR.getRoster().length : 0;
+    const seedNote = seedCards.skipped ? "" : " — استُوردت بطاقات الشؤون";
+    setStatus("جاهز — " + cardPool().length + " بطاقة · " + nR + " سجل" + seedNote);
 
-  const params = new URLSearchParams(location.search);
-  const demo = params.get("demo");
-  if (demo) {
-    const card = current();
-    card.jobs[0].docNo = demo;
-    maybeSuggestFromRow(card, card.jobs[0], 0);
+    const params = new URLSearchParams(location.search);
+    const demo = params.get("demo");
+    if (demo) {
+      const card = current();
+      if (card) {
+        card.jobs[0].docNo = demo;
+        maybeSuggestFromRow(card, card.jobs[0], 0);
+      }
+    }
+    const only = params.get("page");
+    if (only && Number(only) <= 2) {
+      document.querySelectorAll(".page").forEach((p) => {
+        p.classList.toggle("hidden", String(p.dataset.page) !== only);
+      });
+      showPage(Number(only), true);
+    }
   }
-  const only = params.get("page");
-  if (only) {
-    document.querySelectorAll(".page").forEach((p) => {
-      p.classList.toggle("hidden", String(p.dataset.page) !== only);
-    });
-    showPage(Number(only), true);
-  }
+
+  if (!window.FormSYAuth || window.FormSYAuth.session()) startApp();
+  window.addEventListener("formsy-auth", (e) => {
+    if (e.detail && e.detail.type === "login") startApp();
+  });
 })();
