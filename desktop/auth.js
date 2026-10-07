@@ -2,8 +2,10 @@
 (function (global) {
   const USERS_KEY = "formSY.users.v1";
   const SESSION_KEY = "formSY.session.v1";
-  const ROLES = { designer: "المصمم", manager: "مدير", clerk: "مدخل بيانات" };
-  const DESIGNER_EMAIL = "shahrazad391@gmail.com";
+  const ROLES = { designer: "المصمم", clerk: "مدخل بيانات" };
+  const DESIGNER_USER = "asma";
+  const DESIGNER_SALT = "c4eae2dee84b99e7ae87ded6fbe4ed77";
+  const DESIGNER_HASH = "e10410bf51d6981c720c9384446a515c432d04cc2fd43794f9b7f3dd2d853597";
 
   let mode = "login";
   let syncing = false;
@@ -13,21 +15,44 @@
     return s.indexOf("@") >= 0 ? s.toLowerCase() : String(v || "").replace(/\s+/g, " ").trim();
   }
   function isDesignerName(v) {
-    return canonUser(v) === DESIGNER_EMAIL;
+    return canonUser(v).toLowerCase() === DESIGNER_USER;
+  }
+  function ensureDesigner(list) {
+    let changed = false;
+    let row = (list || []).find((u) => u && isDesignerName(u.username));
+    if (!row) {
+      list.push({
+        username: DESIGNER_USER,
+        passHash: DESIGNER_HASH,
+        salt: DESIGNER_SALT,
+        role: "designer",
+        active: true,
+        updatedAt: "2026-10-07T00:00:00.000Z",
+      });
+      return true;
+    }
+    if (row.username !== DESIGNER_USER) { row.username = DESIGNER_USER; changed = true; }
+    if (row.role !== "designer") { row.role = "designer"; changed = true; }
+    if (row.active === false) { row.active = true; changed = true; }
+    if (row.salt !== DESIGNER_SALT || row.passHash !== DESIGNER_HASH) {
+      row.salt = DESIGNER_SALT;
+      row.passHash = DESIGNER_HASH;
+      changed = true;
+    }
+    return changed;
   }
   function normalizeUsers(list) {
     let changed = false;
     (list || []).forEach((u) => {
       if (!u) return;
-      if (isDesignerName(u.username)) {
-        if (u.username !== DESIGNER_EMAIL) { u.username = DESIGNER_EMAIL; changed = true; }
-        if (u.role !== "designer") { u.role = "designer"; u.updatedAt = new Date().toISOString(); changed = true; }
-      } else if (u.role === "designer") {
+      if (isDesignerName(u.username)) return;
+      if (u.role === "designer" || u.role === "manager") {
         u.role = "clerk";
         u.updatedAt = new Date().toISOString();
         changed = true;
       }
     });
+    if (ensureDesigner(list)) changed = true;
     return changed;
   }
   function loadUsers() {
@@ -55,6 +80,7 @@
         return null;
       }
       if (isDesignerName(s.user)) s.role = "designer";
+      else if (s.role === "manager" || s.role === "designer") s.role = "clerk";
       if (!ROLES[s.role]) return null;
       return s;
     } catch (e) {
@@ -63,7 +89,7 @@
   }
   function seesAll() {
     const s = session();
-    return !!(s && (s.role === "designer" || s.role === "manager"));
+    return !!(s && s.role === "designer" && isDesignerName(s.user));
   }
   function user() {
     const s = session();
@@ -104,7 +130,7 @@
     const usersBtn = document.getElementById("btnUsers");
     if (usersBtn) usersBtn.classList.toggle("hidden", !s || s.role !== "designer");
     const cloud = document.getElementById("btnCloud");
-    if (cloud) cloud.classList.toggle("hidden", !!(s && s.role === "clerk"));
+    if (cloud) cloud.classList.toggle("hidden", !s || s.role !== "designer");
   }
 
   function enter(rec) {
@@ -122,7 +148,7 @@
     if (syncing) return false;
     if (!global.FormSYCloud || !global.FormSYCloud.rest) return false;
     const cfg = global.FormSYCloud.cfg && global.FormSYCloud.cfg();
-    if (!cfg || !cfg.url || !cfg.anon) return false;
+    if (!cfg || (!cfg.auto && (!cfg.url || !cfg.anon))) return false;
     syncing = true;
     try {
       const res = await global.FormSYCloud.rest(
@@ -162,7 +188,7 @@
     if (syncing) return false;
     if (!global.FormSYCloud || !global.FormSYCloud.rest) return false;
     const cfg = global.FormSYCloud.cfg && global.FormSYCloud.cfg();
-    if (!cfg || !cfg.url || !cfg.anon) return false;
+    if (!cfg || (!cfg.auto && (!cfg.url || !cfg.anon))) return false;
     const body = (list || []).filter((u) => u && u.username && u.passHash && u.salt).map((u) => ({
       username: u.username,
       pass_hash: u.passHash,
@@ -194,12 +220,13 @@
   }
 
   async function addUser(username, password, role) {
-    const name = role === "designer" ? DESIGNER_EMAIL : cleanName(username);
+    const name = role === "designer" ? DESIGNER_USER : cleanName(username);
+    if (role === "designer") return "حساب المصمم ثابت ولا يُنشأ من هنا";
     if (name.length < 2 || name.length > 80) return "اسم المستخدم بين حرفين و80";
     if (String(password || "").length < 6) return "كلمة المرور 6 أحرف على الأقل";
     if (!ROLES[role]) return "صلاحية غير معروفة";
     if (role === "designer" && !isDesignerName(name)) return "صلاحية المصمم لهذا البريد فقط";
-    if (role !== "designer" && isDesignerName(name)) return "هذا البريد لحساب المصمم فقط";
+    if (role !== "designer" && isDesignerName(name)) return "هذا الاسم لحساب المصمم فقط";
     const list = loadUsers();
     if (list.some((u) => canonUser(u.username) === canonUser(name))) return "اسم المستخدم مستخدم";
     if (role === "designer" && hasDesigner(list)) return "حساب المصمم موجود مسبقاً";
@@ -225,23 +252,17 @@
     const sw = document.getElementById("auth-switch");
     const userEl = document.getElementById("auth-user");
     if (pass2) pass2.classList.toggle("hidden", mode === "login");
-    if (mode === "setup") {
-      if (title) title.textContent = "دخول المصمم";
-      if (lead) lead.textContent = "صلاحية المصمم محجوزة لحسابك فقط. اكتب كلمة مرور لهذا البريد، ثم ادخل بها في المرات القادمة.";
-      if (submit) submit.textContent = "حفظ الدخول";
-      if (sw) sw.classList.add("hidden");
-      if (userEl) { userEl.value = DESIGNER_EMAIL; userEl.readOnly = true; }
-    } else if (mode === "register") {
-      if (title) title.textContent = "تسجيل مدخل بيانات";
-      if (lead) lead.textContent = "حساب مستقل. ترى سجلاتك فقط، ولا ترى سجلات بقية المدخلين.";
+    if (mode === "register") {
+      if (title) title.textContent = "تسجيل مستخدم";
+      if (lead) lead.textContent = "اسم مستخدم وكلمة مرور. ترى وتعدّل السجلات التي تدخلها أنت فقط.";
       if (submit) submit.textContent = "إنشاء الحساب";
       if (sw) { sw.classList.remove("hidden"); sw.textContent = "العودة للدخول"; }
       if (userEl) userEl.readOnly = false;
     } else {
       if (title) title.textContent = "الدخول إلى السجل";
-      if (lead) lead.textContent = "المصمم: " + DESIGNER_EMAIL + " فقط. المدير يرى كل السجلات. مدخل البيانات يرى سجلاته فقط.";
+      if (lead) lead.textContent = "المصمم يدخل بحسابه فقط ويرى كل التغيرات. أي مستخدم آخر يرى بياناته وحدها.";
       if (submit) submit.textContent = "دخول";
-      if (sw) { sw.classList.remove("hidden"); sw.textContent = "تسجيل مدخل بيانات"; }
+      if (sw) { sw.classList.remove("hidden"); sw.textContent = "تسجيل مستخدم"; }
       if (userEl) userEl.readOnly = false;
     }
   }
@@ -261,17 +282,16 @@
     const pass2 = pass2el ? pass2el.value : "";
     setMsg("جاري التحقق…");
     await pullUsers();
-    if (mode === "setup") {
-      if (pass !== pass2) { setMsg("كلمتا المرور غير متطابقتين", false); return; }
-      const err = await addUser(DESIGNER_EMAIL, pass, "designer");
-      if (err) { setMsg(err, false); return; }
-      const rec = loadUsers().find((u) => isDesignerName(u.username));
+    if (isDesignerName(name)) {
+      const hash = await hashPassword(pass, DESIGNER_SALT);
+      if (hash !== DESIGNER_HASH) { setMsg("كلمة المرور غير صحيحة", false); return; }
+      sessionStorage.setItem("formSY.designerPass", pass);
       setMsg("");
-      enter(rec);
+      enter({ username: DESIGNER_USER, role: "designer" });
       return;
     }
+    sessionStorage.removeItem("formSY.designerPass");
     if (mode === "register") {
-      if (!hasDesigner()) { setMsg("حساب المصمم لم يُضبط بعد", false); mode = "setup"; renderMode(); return; }
       if (pass !== pass2) { setMsg("كلمتا المرور غير متطابقتين", false); return; }
       const err = await addUser(name, pass, "clerk");
       if (err) { setMsg(err, false); return; }
@@ -327,7 +347,7 @@
     await pullUsers();
     await pushUsers(loadUsers());
     renderUsers();
-    if (msg) msg.textContent = "الحسابات على هذا الجهاز. تُرفع إلى Supabase إذا شُغّل SQL جدول sijil_users.";
+    if (msg) msg.textContent = "حسابات المستخدمين تُزامَن مع القاعدة عندما يكون الربط محفوظاً. كل مستخدم يبقى على سجلاته.";
   }
 
   function bind() {
@@ -385,6 +405,7 @@
     const out = document.getElementById("btnLogout");
     if (out) out.onclick = () => {
       sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem("formSY.designerPass");
       location.reload();
     };
     renderMode();
@@ -392,12 +413,7 @@
       applyChrome();
       unlock();
     }
-    pullUsers().then(() => {
-      if (!session() && !hasDesigner()) {
-        mode = "setup";
-        renderMode();
-      }
-    });
+    pullUsers().then(() => { renderMode(); });
   }
 
   global.FormSYAuth = {

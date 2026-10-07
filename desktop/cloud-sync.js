@@ -64,11 +64,11 @@
   ];
 
   function cfg() {
-    return {
-      url: (localStorage.getItem("formSY.cloud.url") || "").replace(/\/+$/, ""),
-      anon: (localStorage.getItem("formSY.cloud.anon") || "").trim(),
-      table: localStorage.getItem("formSY.cloud.table") || "thatea",
-    };
+    const url = (localStorage.getItem("formSY.cloud.url") || "").replace(/\/+$/, "");
+    const anon = (localStorage.getItem("formSY.cloud.anon") || "").trim();
+    const table = localStorage.getItem("formSY.cloud.table") || "thatea";
+    if (url && anon) return { url: url, anon: anon, table: table, auto: false };
+    return { url: "", anon: "", table: table, auto: true };
   }
 
   function rowFrom(rec) {
@@ -120,6 +120,8 @@
         cache: "no-store",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
+          action: "proxy",
+          auto: !!c.auto,
           url: c.url,
           key: c.anon,
           table: c.table,
@@ -138,10 +140,10 @@
 
   async function rest(method, table, query, body, prefer) {
     const c = cfg();
-    if (!c.url || !c.anon) return null;
+    if (!c.auto && (!c.url || !c.anon)) return null;
     const use = { url: c.url, anon: c.anon, table: table || c.table };
     let res = await viaProxy(use, method === "POST" ? "POST" : "GET", query, body, prefer);
-    if (!res) {
+    if (!res && use.url && use.anon) {
       try {
         const headers = {
           apikey: use.anon,
@@ -164,14 +166,14 @@
 
   async function pull() {
     const c = cfg();
-    if (!c.url || !c.anon) return { ok: false, reason: "not-configured", rows: [] };
+    if (!c.auto && (!c.url || !c.anon)) return { ok: false, reason: "not-configured", rows: [] };
     let query = "select=*&limit=2000";
     const auth = global.FormSYAuth && global.FormSYAuth.session && global.FormSYAuth.session();
     if (auth && auth.role === "clerk") {
       query += "&" + encodeURIComponent("المُدخل") + "=eq." + encodeURIComponent(auth.user);
     }
     let res = await viaProxy(c, "GET", query);
-    if (!res) {
+    if (!res && c.url && c.anon) {
       try {
         res = await fetch(restUrl(c, "", query), {
           method: "GET",
@@ -183,6 +185,7 @@
         return { ok: false, reason: e.message || String(e), rows: [] };
       }
     }
+    if (!res) return { ok: false, reason: "not-configured", rows: [] };
     if (!res.ok) return { ok: false, reason: await parseError(res), rows: [] };
     const data = await res.json();
     return { ok: true, rows: Array.isArray(data) ? data.map(recFrom) : [] };
@@ -190,7 +193,7 @@
 
   async function postRows(c, rows, query, prefer) {
     let res = await viaProxy(c, "POST", query, rows, prefer);
-    if (!res) {
+    if (!res && c.url && c.anon) {
       try {
         res = await fetch(restUrl(c, "", query), {
           method: "POST",
@@ -206,13 +209,14 @@
         return { ok: false, reason: e.message || String(e) };
       }
     }
+    if (!res) return { ok: false, reason: "not-configured" };
     if (res.ok) return { ok: true };
     return { ok: false, reason: await parseError(res) };
   }
 
   async function pushRows(records) {
     const c = cfg();
-    if (!c.url || !c.anon) return { ok: false, reason: "not-configured" };
+    if (!c.auto && (!c.url || !c.anon)) return { ok: false, reason: "not-configured" };
     const payload = (records || []).map(rowFrom).filter((r) => Object.keys(r).length);
     if (!payload.length) return { ok: false, reason: "ما في صفوف محفوظة على هذا الجهاز لرفعها" };
     let okCount = 0;
@@ -252,7 +256,7 @@
   async function hydrateRoster() {
     if (!global.FormSYHR || !global.FormSYHR.mergeRoster) return;
     const c = cfg();
-    if (!c.url || !c.anon) return;
+    if (!c.auto && (!c.url || !c.anon)) return;
     try {
       const r = await pull();
       if (r.ok && r.rows.length) {
@@ -333,6 +337,29 @@
     return r;
   }
 
+  async function publishConfig(url, key, table) {
+    const pass = sessionStorage.getItem("formSY.designerPass") || "";
+    try {
+      const res = await fetch("/.netlify/functions/sb", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          action: "save-config",
+          user: "asma",
+          pass: pass,
+          url: url,
+          key: key,
+          table: table || "thatea",
+        }),
+      });
+      if (!res || !res.ok) return { ok: false };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false };
+    }
+  }
+
   function bindCloudUi() {
     const modal = document.getElementById("cloud-modal");
     const btn = document.getElementById("btnCloud");
@@ -399,7 +426,8 @@
         localStorage.setItem("formSY.cloud.url", parsed.url);
         localStorage.setItem("formSY.cloud.anon", parsed.anon);
         localStorage.setItem("formSY.cloud.table", parsed.table);
-        setMsg("جاري رفع السجلات الموجودة على هذا الجهاز…");
+        const published = await publishConfig(parsed.url, parsed.anon, parsed.table);
+        setMsg(published.ok ? "جاري رفع السجلات وربطها لكل الحسابات…" : "جاري رفع السجلات على هذا الجهاز…");
         try {
           const roster = global.FormSYHR && global.FormSYHR.getRoster ? global.FormSYHR.getRoster() : [];
           const up = await pushRows(roster);

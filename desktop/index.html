@@ -47,7 +47,7 @@
     <span class="status" id="status"></span>
     <span class="who" id="whoami"></span>
     <button type="button" class="btn hidden" id="btnUsers">المستخدمون</button>
-    <button type="button" class="btn gold" id="btnCloud">الربط السحابي</button>
+    <button type="button" class="btn gold hidden" id="btnCloud">الربط السحابي</button>
     <button type="button" class="btn" id="btnLogout">خروج</button>
   </header>
 
@@ -359,16 +359,8 @@
         <h2 id="users-title">المستخدمون — صلاحية المصمم</h2>
         <button type="button" class="btn" id="btnUsersClose">إغلاق</button>
       </header>
-      <p class="hint">المصمم يدير الحسابات ويرى كل السجلات ويعدّلها. المدير يرى كل السجلات ويعدّلها. مدخل البيانات يملك سجلاته فقط. تعديل نص البرنامج نفسه يبقى في المستودع حتى لا ينكسر السجل من المتصفح.</p>
+      <p class="hint">حساب asma فقط يدير المستخدمين ويرى كل السجلات. أي مستخدم آخر يتعامل مع البيانات التي أدخلها من حسابه. تعديل نص البرنامج يبقى في المستودع.</p>
       <div id="users-list"></div>
-      <h3>حساب مدير جديد</h3>
-      <label>اسم المستخدم
-        <input id="mgr-user" autocomplete="off">
-      </label>
-      <label>كلمة المرور
-        <input id="mgr-pass" type="password" autocomplete="new-password">
-      </label>
-      <button type="button" class="btn ok" id="btnMgrCreate">إنشاء مدير</button>
       <p id="users-msg" class="cloud-msg"></p>
     </div>
   </div>
@@ -382,7 +374,7 @@
       <ol class="cloud-steps">
         <li>افتح مشروعك في Supabase → SQL Editor → الصق الأمر ثم Run.</li>
         <li>من الشريط الأيسر: <b>Project Settings → API Keys</b>. انسخ <b>Publishable key</b> (يبدأ بـ sb_publishable_). إذا ما ظهر، افتح تبويب <b>Legacy API keys</b> وانسخ <b>anon</b>.</li>
-        <li>الصق الرابط والمفتاح هنا واضغط حفظ واختبار. لا تنسخ Secret ولا service_role.</li>
+        <li>هذا الزر للمصمم فقط. بعد الحفظ تُربط القاعدة بكل الحسابات، والمستخدم العادي لا يرى هذا الزر.</li>
       </ol>
       <label>رابط المشروع
         <input id="cloud-url" dir="ltr" placeholder="https://xxxx.supabase.co" autocomplete="off">
