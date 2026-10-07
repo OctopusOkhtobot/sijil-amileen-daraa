@@ -3,14 +3,39 @@
   const USERS_KEY = "formSY.users.v1";
   const SESSION_KEY = "formSY.session.v1";
   const ROLES = { designer: "المصمم", manager: "مدير", clerk: "مدخل بيانات" };
+  const DESIGNER_EMAIL = "shahrazad391@gmail.com";
 
   let mode = "login";
   let syncing = false;
 
+  function canonUser(v) {
+    const s = String(v || "").replace(/\s+/g, "").trim();
+    return s.indexOf("@") >= 0 ? s.toLowerCase() : String(v || "").replace(/\s+/g, " ").trim();
+  }
+  function isDesignerName(v) {
+    return canonUser(v) === DESIGNER_EMAIL;
+  }
+  function normalizeUsers(list) {
+    let changed = false;
+    (list || []).forEach((u) => {
+      if (!u) return;
+      if (isDesignerName(u.username)) {
+        if (u.username !== DESIGNER_EMAIL) { u.username = DESIGNER_EMAIL; changed = true; }
+        if (u.role !== "designer") { u.role = "designer"; u.updatedAt = new Date().toISOString(); changed = true; }
+      } else if (u.role === "designer") {
+        u.role = "clerk";
+        u.updatedAt = new Date().toISOString();
+        changed = true;
+      }
+    });
+    return changed;
+  }
   function loadUsers() {
     try {
       const raw = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
-      return Array.isArray(raw) ? raw : [];
+      const list = Array.isArray(raw) ? raw : [];
+      if (normalizeUsers(list)) saveUsers(list);
+      return list;
     } catch (e) {
       return [];
     }
@@ -19,12 +44,17 @@
     localStorage.setItem(USERS_KEY, JSON.stringify(list));
   }
   function hasDesigner(list) {
-    return (list || loadUsers()).some((u) => u.role === "designer" && u.active !== false);
+    return (list || loadUsers()).some((u) => isDesignerName(u.username) && u.role === "designer" && u.active !== false);
   }
   function session() {
     try {
       const s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
       if (!s || !s.user || !s.role || !s.exp || s.exp < Date.now()) return null;
+      if (s.role === "designer" && !isDesignerName(s.user)) {
+        sessionStorage.removeItem(SESSION_KEY);
+        return null;
+      }
+      if (isDesignerName(s.user)) s.role = "designer";
       if (!ROLES[s.role]) return null;
       return s;
     } catch (e) {
@@ -114,10 +144,11 @@
           active: row.active !== false,
           updatedAt: row.updated_at || "",
         };
-        const i = local.findIndex((u) => u.username === rec.username);
+        const i = local.findIndex((u) => canonUser(u.username) === canonUser(rec.username));
         if (i < 0) local.push(rec);
         else if (String(rec.updatedAt) >= String(local[i].updatedAt || "")) local[i] = rec;
       });
+      normalizeUsers(local);
       saveUsers(local);
       return true;
     } catch (e) {
@@ -159,16 +190,18 @@
   }
 
   function cleanName(v) {
-    return String(v || "").replace(/\s+/g, " ").trim();
+    return canonUser(v);
   }
 
   async function addUser(username, password, role) {
-    const name = cleanName(username);
-    if (name.length < 2 || name.length > 40) return "اسم المستخدم بين حرفين و40";
+    const name = role === "designer" ? DESIGNER_EMAIL : cleanName(username);
+    if (name.length < 2 || name.length > 80) return "اسم المستخدم بين حرفين و80";
     if (String(password || "").length < 6) return "كلمة المرور 6 أحرف على الأقل";
     if (!ROLES[role]) return "صلاحية غير معروفة";
+    if (role === "designer" && !isDesignerName(name)) return "صلاحية المصمم لهذا البريد فقط";
+    if (role !== "designer" && isDesignerName(name)) return "هذا البريد لحساب المصمم فقط";
     const list = loadUsers();
-    if (list.some((u) => u.username === name)) return "اسم المستخدم مستخدم";
+    if (list.some((u) => canonUser(u.username) === canonUser(name))) return "اسم المستخدم مستخدم";
     if (role === "designer" && hasDesigner(list)) return "حساب المصمم موجود مسبقاً";
     const salt = randomSalt();
     list.push({
@@ -193,21 +226,23 @@
     const userEl = document.getElementById("auth-user");
     if (pass2) pass2.classList.toggle("hidden", mode === "login");
     if (mode === "setup") {
-      if (title) title.textContent = "إعداد حساب المصمم";
-      if (lead) lead.textContent = "أول تشغيل: هذا الحساب يرى كل السجلات ويدير المستخدمين. يُحفظ على هذا الجهاز ويُرفع للسحابة إذا كان الربط جاهزاً.";
-      if (submit) submit.textContent = "إنشاء والدخول";
+      if (title) title.textContent = "دخول المصمم";
+      if (lead) lead.textContent = "صلاحية المصمم محجوزة لحسابك فقط. اكتب كلمة مرور لهذا البريد، ثم ادخل بها في المرات القادمة.";
+      if (submit) submit.textContent = "حفظ الدخول";
       if (sw) sw.classList.add("hidden");
-      if (userEl && !userEl.value) userEl.value = "مصمم";
+      if (userEl) { userEl.value = DESIGNER_EMAIL; userEl.readOnly = true; }
     } else if (mode === "register") {
       if (title) title.textContent = "تسجيل مدخل بيانات";
       if (lead) lead.textContent = "حساب مستقل. ترى سجلاتك فقط، ولا ترى سجلات بقية المدخلين.";
       if (submit) submit.textContent = "إنشاء الحساب";
       if (sw) { sw.classList.remove("hidden"); sw.textContent = "العودة للدخول"; }
+      if (userEl) userEl.readOnly = false;
     } else {
       if (title) title.textContent = "الدخول إلى السجل";
-      if (lead) lead.textContent = "مدير ومصمم: كل السجلات. مدخل بيانات: سجلاته فقط.";
+      if (lead) lead.textContent = "المصمم: " + DESIGNER_EMAIL + " فقط. المدير يرى كل السجلات. مدخل البيانات يرى سجلاته فقط.";
       if (submit) submit.textContent = "دخول";
       if (sw) { sw.classList.remove("hidden"); sw.textContent = "تسجيل مدخل بيانات"; }
+      if (userEl) userEl.readOnly = false;
     }
   }
 
@@ -228,24 +263,24 @@
     await pullUsers();
     if (mode === "setup") {
       if (pass !== pass2) { setMsg("كلمتا المرور غير متطابقتين", false); return; }
-      const err = await addUser(name || "مصمم", pass, "designer");
+      const err = await addUser(DESIGNER_EMAIL, pass, "designer");
       if (err) { setMsg(err, false); return; }
-      const rec = loadUsers().find((u) => u.username === (name || "مصمم"));
+      const rec = loadUsers().find((u) => isDesignerName(u.username));
       setMsg("");
       enter(rec);
       return;
     }
     if (mode === "register") {
-      if (!hasDesigner()) { setMsg("أنشئ حساب المصمم أولاً", false); mode = "setup"; renderMode(); return; }
+      if (!hasDesigner()) { setMsg("حساب المصمم لم يُضبط بعد", false); mode = "setup"; renderMode(); return; }
       if (pass !== pass2) { setMsg("كلمتا المرور غير متطابقتين", false); return; }
       const err = await addUser(name, pass, "clerk");
       if (err) { setMsg(err, false); return; }
-      const rec = loadUsers().find((u) => u.username === name);
+      const rec = loadUsers().find((u) => canonUser(u.username) === canonUser(name));
       setMsg("");
       enter(rec);
       return;
     }
-    const rec = loadUsers().find((u) => u.username === name);
+    const rec = loadUsers().find((u) => canonUser(u.username) === canonUser(name));
     if (!rec || rec.active === false) { setMsg("الحساب غير موجود أو موقوف", false); return; }
     const hash = await hashPassword(pass, rec.salt || "");
     if (hash !== rec.passHash) { setMsg("كلمة المرور غير صحيحة", false); return; }
