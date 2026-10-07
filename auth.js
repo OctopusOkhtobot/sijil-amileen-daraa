@@ -288,6 +288,11 @@
       sessionStorage.setItem("formSY.designerPass", pass);
       setMsg("");
       enter({ username: DESIGNER_USER, role: "designer" });
+      const savedUrl = localStorage.getItem("formSY.cloud.url");
+      const savedKey = localStorage.getItem("formSY.cloud.anon");
+      if (savedUrl && savedKey && global.FormSYCloud && global.FormSYCloud.publishConfig) {
+        global.FormSYCloud.publishConfig(savedUrl, savedKey, localStorage.getItem("formSY.cloud.table") || "thatea");
+      }
       return;
     }
     sessionStorage.removeItem("formSY.designerPass");

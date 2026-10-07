@@ -273,7 +273,7 @@
     }
   }
 
-  global.FormSYCloud = { cfg, pull, pushRows, queue, hydrateRoster, rowFrom, recFrom, rest, SETUP_SQL: null };
+  global.FormSYCloud = { cfg, pull, pushRows, queue, hydrateRoster, rowFrom, recFrom, rest, publishConfig, SETUP_SQL: null };
   global.addEventListener("message", (e) => {
     if (e && e.data && e.data.type === "formsy-cloud-reload") hydrateRoster();
   });
