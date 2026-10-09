@@ -106,7 +106,7 @@
     <p class="hint-bar no-print">
       انقر الخانة واكتب كالنموذج. تنقّل بزر <b>Tab</b>.
       الطباعة والتصدير صفحتان فقط: البطاقة، ثم الإجازات والمكافآت.
-      الحفظ يضيف البطاقة إلى سجل الموظفين إذا لم يتطابق الرقم الوطني، أو الاسم مع اسم الأب.
+      الحفظ يرفض السجل إذا خلا الرقم الوطني، أو احتوى أحرفاً، أو كان مكرراً. «موافق» يُهمل السجل ولا يحفظه.
       &nbsp;|&nbsp; <b class="lbl">أزرق</b> تسمية · <b class="val">أسود</b> بيانات · <b class="sug">أحمر</b> اقتراح
     </p>
 
@@ -352,6 +352,18 @@
     <option value="بلاغ">
     <option value="أمر إداري">
   </datalist>
+
+  <div id="nid-gate" class="cloud-modal hidden no-print" role="dialog" aria-labelledby="nid-gate-title">
+    <div class="cloud-card">
+      <h2 id="nid-gate-title">لن يُحفظ السجل</h2>
+      <p id="nid-gate-text"></p>
+      <p class="hint">رجوع للبطاقة يبقيك لتصحيح الرقم الوطني. موافق يُهمل هذا السجل ولا يكتبه على الجهاز ولا في القاعدة.</p>
+      <div class="cloud-actions">
+        <button type="button" class="btn" id="nid-gate-back">رجوع للبطاقة</button>
+        <button type="button" class="btn ok" id="nid-gate-ok">موافق</button>
+      </div>
+    </div>
+  </div>
 
   <div id="users-modal" class="cloud-modal hidden no-print" role="dialog" aria-labelledby="users-title">
     <div class="cloud-card">

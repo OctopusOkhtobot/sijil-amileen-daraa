@@ -1,4 +1,4 @@
-const CACHE = "formsy-v15-asma";
+const CACHE = "formsy-v16-nid";
 const ASSETS = [
   "./",
   "./index.html",

@@ -176,6 +176,7 @@
     const cn = digits(card && card.nationalId);
     const rn = digits(rec.nationalId);
     if (cn && rn && cn === rn) return 100;
+    if (cn && rn && cn !== rn) return 0;
     const a = arNorm(card && card.fullName);
     const b = arNorm(rec.fullName);
     const fa = arNorm(card && card.fatherName);
@@ -319,17 +320,39 @@
     }
   }
 
-  function readForm() {
+  async function saveRosterForm() {
     let rec = current();
-    if (!rec) {
-      rec = blankRecord();
-      app.roster.push(rec);
-      app.currentId = rec.id;
-    }
+    const draft = {};
     FIELDS.forEach((f) => {
       const node = document.querySelector('[data-rf="' + f.key + '"]');
-      if (node) rec[f.key] = node.value;
+      draft[f.key] = node ? node.value : (rec && rec[f.key]) || "";
     });
+    const nid = global.FormSYGate ? global.FormSYGate.nidText(draft.nationalId) : String(draft.nationalId || "");
+    const linked = rec ? findCardForRecord(rec) : null;
+    const cardId = linked && nid && (global.FormSYGate ? global.FormSYGate.nidText(linked.nationalId) : linked.nationalId) === nid ? linked.id : "";
+    const same = !!(rec && nid && (global.FormSYGate ? global.FormSYGate.nidText(rec.nationalId) : rec.nationalId) === nid);
+    const gate = global.FormSYGate
+      ? await global.FormSYGate.review(draft.nationalId, draft.fullName, cardId, rec ? rec.id : "", same)
+      : "ok";
+    if (gate === "back") {
+      if (global.FormSYGate) global.FormSYGate.focus("roster");
+      setStatus("لم يُحفظ — صحّح الرقم الوطني", false);
+      return "back";
+    }
+    if (gate === "ignore") {
+      fillForm();
+      app.dirty = false;
+      setStatus("أُهمل السجل ولم يُحفظ", false);
+      return "ignore";
+    }
+    if (!rec) {
+      rec = blankRecord();
+      if (global.FormSYAuth && global.FormSYAuth.user()) rec.owner = global.FormSYAuth.user();
+      app.roster.unshift(rec);
+      app.currentId = rec.id;
+    }
+    FIELDS.forEach((f) => { rec[f.key] = draft[f.key]; });
+    if (nid) rec.nationalId = nid;
     rec.updatedAt = new Date().toISOString();
     if (!rec.owner && global.FormSYAuth && global.FormSYAuth.user()) rec.owner = global.FormSYAuth.user();
     rec.birthPlaceDate = [rec.birthPlace, rec.birthDate].filter(Boolean).join(" ");
@@ -458,8 +481,11 @@
     renderStats("registry-stats", filtered());
   }
 
-  function selectRecord(id) {
-    if (app.dirty) readForm();
+  async function selectRecord(id) {
+    if (app.dirty) {
+      const saved = await saveRosterForm();
+      if (saved === "back") return;
+    }
     app.currentId = id;
     persist();
     renderList();
@@ -511,8 +537,10 @@
     app.bridge.syncCardFromRoster(rec);
   }
 
-  function openLinkedCard() {
-    const rec = readForm();
+  async function openLinkedCard() {
+    const saved = await saveRosterForm();
+    if (saved === "back" || saved === "ignore") return;
+    const rec = saved;
     const card = findCardForRecord(rec);
     if (card && app.bridge && app.bridge.openCard) {
       app.bridge.openCard(card.id);
@@ -684,15 +712,19 @@
       });
     }
     const btnSave = document.getElementById("btnRosterSave");
-    if (btnSave) btnSave.onclick = () => {
-      const rec = readForm();
+    if (btnSave) btnSave.onclick = async () => {
+      const rec = await saveRosterForm();
+      if (!rec || rec === "back" || rec === "ignore") return;
       syncToCard(rec);
       renderAll();
       setStatus("حُفظ سجل «" + (rec.fullName || "موظف") + "»", true);
     };
     const btnNew = document.getElementById("btnRosterNew");
-    if (btnNew) btnNew.onclick = () => {
-      if (app.dirty) readForm();
+    if (btnNew) btnNew.onclick = async () => {
+      if (app.dirty) {
+        const saved = await saveRosterForm();
+        if (saved === "back") return;
+      }
       const rec = blankRecord();
       if (global.FormSYAuth && global.FormSYAuth.user()) rec.owner = global.FormSYAuth.user();
       app.roster.unshift(rec);
@@ -831,6 +863,7 @@
     upsertFromCard,
     current,
     getRoster: () => scopeList(),
+    getAllRoster: () => app.roster,
     FIELDS,
   };
 })(window);

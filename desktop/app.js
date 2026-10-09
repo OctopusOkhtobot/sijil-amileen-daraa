@@ -162,6 +162,110 @@
   function digitsOnly(s) {
     return String(s || "").replace(/\D/g, "");
   }
+  function nidText(raw) {
+    return String(raw || "")
+      .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
+      .replace(/\s+/g, "");
+  }
+  function nidIssue(raw, name) {
+    const text = nidText(raw);
+    const hasName = String(name || "").trim().length > 0;
+    if (!text) {
+      if (!hasName) return "";
+      return "لن يُحفظ هذا السجل: الاسم بلا رقم وطني.";
+    }
+    if (!/^[0-9]+$/.test(text)) return "لن يُحفظ هذا السجل: الرقم الوطني يحتوي أحرفاً أو رموزاً.";
+    return "";
+  }
+  const committed = {};
+  function rememberCards() {
+    Object.keys(committed).forEach((k) => { delete committed[k]; });
+    state.cards.forEach((c) => {
+      committed[c.id] = JSON.parse(JSON.stringify(c));
+    });
+  }
+  function ownRosterId(card, nid) {
+    if (!window.FormSYHR || !window.FormSYHR.findForCard) return "";
+    const rec = window.FormSYHR.findForCard(card);
+    if (!rec || nidText(rec.nationalId) !== nid) return "";
+    const snap = committed[card.id];
+    const saved = snap ? nidText(snap.nationalId) : "";
+    if (saved && saved === nid) return rec.id;
+    return "";
+  }
+  function localClash(nid, cardId, rosterId) {
+    if (state.cards.some((c) => c.id !== cardId && nidText(c.nationalId) === nid)) return true;
+    const roster = window.FormSYHR && window.FormSYHR.getAllRoster ? window.FormSYHR.getAllRoster() : [];
+    return roster.some((r) => r.id !== rosterId && nidText(r.nationalId) === nid);
+  }
+  async function remoteClash(nid, rosterId, sameNumber) {
+    if (!window.FormSYCloud || !window.FormSYCloud.lookupNationalId) return false;
+    const rows = await window.FormSYCloud.lookupNationalId(nid);
+    if (!rows || !rows.length) return false;
+    return rows.some((r) => {
+      const id = String(r["عمود1"] || "");
+      if (rosterId && id === String(rosterId)) return false;
+      if (!id && sameNumber) return false;
+      return true;
+    });
+  }
+  function askGate(message) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById("nid-gate");
+      const text = document.getElementById("nid-gate-text");
+      const ok = document.getElementById("nid-gate-ok");
+      const back = document.getElementById("nid-gate-back");
+      if (!modal || !ok || !back) { resolve("back"); return; }
+      if (text) text.textContent = message;
+      modal.classList.remove("hidden");
+      function done(v) {
+        modal.classList.add("hidden");
+        ok.onclick = null;
+        back.onclick = null;
+        resolve(v);
+      }
+      ok.onclick = () => done("ignore");
+      back.onclick = () => done("back");
+    });
+  }
+  function focusNid(kind) {
+    const sel = kind === "roster" ? '[data-rf="nationalId"]' : '[data-field="nationalId"]';
+    const el = document.querySelector(sel);
+    if (el) el.focus();
+  }
+  function discardCard(card) {
+    const snap = committed[card.id];
+    if (snap) {
+      const i = state.cards.findIndex((c) => c.id === card.id);
+      if (i >= 0) state.cards[i] = hydrateCard(snap);
+      state.currentId = card.id;
+    } else {
+      state.cards = state.cards.filter((c) => c.id !== card.id);
+      if (!state.cards.length) {
+        const c = blankCard();
+        state.cards = [c];
+      }
+      state.currentId = state.cards[0].id;
+    }
+    state.dirty = false;
+    renderCard();
+    refreshSelect();
+  }
+  async function gatePerson(raw, name, cardId, rosterId, sameNumber) {
+    const issue = nidIssue(raw, name);
+    const nid = nidText(raw);
+    let message = issue;
+    if (!message && nid) {
+      const selfId = rosterId || "";
+      if (localClash(nid, cardId || "", selfId) || await remoteClash(nid, selfId, !!sameNumber)) {
+        message = "لن يُحفظ هذا السجل: الرقم الوطني مكرر.";
+      }
+    }
+    if (!message) return "ok";
+    const choice = await askGate(message);
+    if (choice === "ignore") return "ignore";
+    return "back";
+  }
   function padJobs(list) {
     const rows = (list || []).map((j) => Object.assign(emptyRow(), j));
     while (rows.length < 31) rows.push(emptyRow());
@@ -680,13 +784,28 @@
     stage.style.marginBottom = "";
   }
 
-  function saveCard() {
+  async function saveCard() {
     const card = current();
-    if (!card) return;
+    if (!card) return "skip";
+    const nid = nidText(card.nationalId);
+    const rosterId = ownRosterId(card, nid);
+    const gate = await gatePerson(card.nationalId, card.fullName, card.id, rosterId, !!rosterId);
+    if (gate === "back") {
+      focusNid("card");
+      setStatus("لم يُحفظ — صحّح الرقم الوطني", false);
+      return "back";
+    }
+    if (gate === "ignore") {
+      discardCard(card);
+      setStatus("أُهمل السجل ولم يُحفظ", false);
+      return "ignore";
+    }
     if (window.FormSYAuth && window.FormSYAuth.user() && !card.owner) card.owner = window.FormSYAuth.user();
+    if (nid) card.nationalId = nid;
     card.updatedAt = new Date().toISOString();
     persist();
     state.dirty = false;
+    rememberCards();
     let note = "تم الحفظ محلياً — " + (card.fullName || "بطاقة بلا اسم");
     if (window.FormSYHR && (card.fullName || card.nationalId)) {
       const up = window.FormSYHR.upsertFromCard(card);
@@ -695,6 +814,7 @@
     }
     setStatus(note, true);
     refreshSelect();
+    return "saved";
   }
 
   function cardHasData(card) {
@@ -702,21 +822,28 @@
     return (card.jobs || []).some((r) => r.workplace || r.title || r.wage || r.startDate);
   }
 
-  function newCard() {
+  async function newCard() {
     const cur = current();
-    if (cur && (cardHasData(cur) || state.dirty)) saveCard();
+    if (cur && (cardHasData(cur) || state.dirty)) {
+      const gate = await saveCard();
+      if (gate === "back") return;
+    }
     const c = blankCard();
     if (window.FormSYAuth && window.FormSYAuth.user()) c.owner = window.FormSYAuth.user();
     state.cards.push(c);
     state.currentId = c.id;
     persist();
+    rememberCards();
     renderCard();
     showPage(1);
     setStatus("بطاقة جديدة — عبّئ البيانات ثم احفظ", true);
   }
 
-  function switchCard(id) {
-    if (state.dirty) saveCard();
+  async function switchCard(id) {
+    if (state.dirty) {
+      const gate = await saveCard();
+      if (gate === "back") return;
+    }
     state.currentId = id;
     persist();
     renderCard();
@@ -744,7 +871,8 @@
   }
 
   async function exportExcel() {
-    saveCard();
+    const gate = await saveCard();
+    if (gate === "back" || gate === "ignore") return;
     setStatus("جاري التصدير إلى الملف نفسه…");
     try {
       const name = await window.FormSYExport.exportCards(state.cards);
@@ -990,6 +1118,8 @@
     }
   }
 
+  window.FormSYGate = { review: gatePerson, nidText: nidText, focus: focusNid };
+
   function startApp() {
     if (window.__formsyStarted) return;
     window.__formsyStarted = true;
@@ -1015,6 +1145,7 @@
       if (window.FormSYCloud) window.FormSYCloud.hydrateRoster();
     }
     renderCard();
+    rememberCards();
     applyZoom();
     registerSW();
     const nR = window.FormSYHR ? window.FormSYHR.getRoster().length : 0;

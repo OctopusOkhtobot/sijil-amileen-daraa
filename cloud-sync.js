@@ -214,30 +214,57 @@
     return { ok: false, reason: await parseError(res) };
   }
 
+  function cleanNid(v) {
+    const t = String(v || "")
+      .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
+      .replace(/\s+/g, "");
+    return /^[0-9]+$/.test(t) ? t : "";
+  }
+
   async function pushRows(records) {
     const c = cfg();
     if (!c.auto && (!c.url || !c.anon)) return { ok: false, reason: "not-configured" };
-    const payload = (records || []).map(rowFrom).filter((r) => Object.keys(r).length);
-    if (!payload.length) return { ok: false, reason: "ما في صفوف محفوظة على هذا الجهاز لرفعها" };
+    const payload = (records || []).map((rec) => {
+      const nid = cleanNid(rec && rec.nationalId);
+      if (!nid) return null;
+      return rowFrom(Object.assign({}, rec, { nationalId: nid }));
+    }).filter((r) => r && r["الرقم_الوطني"]);
+    if (!payload.length) return { ok: true, count: 0, note: "لا سجل برقم وطني صالح للرفع" };
     let okCount = 0;
     const errors = [];
     for (let i = 0; i < payload.length; i++) {
       const row = payload[i];
       let sent = await postRows(c, [row], "", "return=minimal");
-      const dup = /duplicate|23505|already exists|unique/i.test(sent.reason || "");
-      if (!sent.ok && dup && row["الرقم_الوطني"]) {
-        const keys = [];
-        if (row["المُدخل"]) keys.push(encodeURIComponent("الرقم_الوطني") + "," + encodeURIComponent("المُدخل"));
-        keys.push(encodeURIComponent("الرقم_الوطني"));
-        for (let k = 0; k < keys.length && !sent.ok; k++) {
-          sent = await postRows(c, [row], "on_conflict=" + keys[k], "resolution=merge-duplicates,return=minimal");
-        }
+      const dup = /23505|duplicate key|already exists/i.test(sent.reason || "");
+      if (!sent.ok && dup) {
+        sent = await postRows(
+          c,
+          [row],
+          "on_conflict=" + encodeURIComponent("الرقم_الوطني"),
+          "resolution=merge-duplicates,return=minimal"
+        );
       }
       if (sent.ok) okCount += 1;
       else if (errors.length < 2) errors.push(sent.reason || "فشل صف");
     }
     if (!okCount) return { ok: false, reason: errors[0] || "ما انرفع ولا صف" };
     return { ok: true, count: okCount, note: errors[0] || "" };
+  }
+
+  async function lookupNationalId(nid) {
+    const c = cfg();
+    if (!c.auto && (!c.url || !c.anon)) return [];
+    const idCol = encodeURIComponent("عمود1");
+    const col = encodeURIComponent("الرقم_الوطني");
+    const q = "select=" + idCol + "," + col + "&" + col + "=eq." + encodeURIComponent(nid) + "&limit=5";
+    const res = await rest("GET", c.table, q);
+    if (!res || !res.ok) return null;
+    try {
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      return null;
+    }
   }
 
   let timer = null;
@@ -273,7 +300,7 @@
     }
   }
 
-  global.FormSYCloud = { cfg, pull, pushRows, queue, hydrateRoster, rowFrom, recFrom, rest, publishConfig, SETUP_SQL: null };
+  global.FormSYCloud = { cfg, pull, pushRows, queue, hydrateRoster, rowFrom, recFrom, rest, publishConfig, lookupNationalId, SETUP_SQL: null };
   global.addEventListener("message", (e) => {
     if (e && e.data && e.data.type === "formsy-cloud-reload") hydrateRoster();
   });
@@ -284,8 +311,13 @@
     "drop policy if exists thata_office_readwrite on public.thatea;\n" +
     "create policy thata_office_readwrite on public.thatea for all to anon, authenticated using (true) with check (true);\n" +
     "drop index if exists thata_national_id_uidx;\n" +
+    "drop index if exists public.thatea_owner_nid_uidx;\n" +
+    "alter table public.thatea drop constraint if exists thata_owner_nid_key;\n" +
     "alter table public.thatea add column if not exists \"المُدخل\" text;\n" +
-    "create unique index if not exists thata_owner_nid_uidx on public.thatea (\"الرقم_الوطني\", \"المُدخل\") where \"الرقم_الوطني\" is not null and \"الرقم_الوطني\" <> '';\n" +
+    "delete from public.thatea where coalesce(btrim(\"الرقم_الوطني\"), '') !~ '^[0-9]+$';\n" +
+    "delete from public.thatea a using public.thatea b where a.ctid < b.ctid and a.\"الرقم_الوطني\" = b.\"الرقم_الوطني\";\n" +
+    "alter table public.thatea drop constraint if exists thata_nid_key;\n" +
+    "alter table public.thatea add constraint thata_nid_key unique (\"الرقم_الوطني\");\n" +
     "create table if not exists public.sijil_users (\n" +
     "  username text primary key,\n" +
     "  pass_hash text not null,\n" +
