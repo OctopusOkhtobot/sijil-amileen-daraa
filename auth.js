@@ -144,6 +144,11 @@
     unlock();
   }
 
+  async function syncUsers() {
+    await pullUsers();
+    return pushUsers(loadUsers());
+  }
+
   async function pullUsers() {
     if (syncing) return false;
     if (!global.FormSYCloud || !global.FormSYCloud.rest) return false;
@@ -240,8 +245,8 @@
       updatedAt: new Date().toISOString(),
     });
     saveUsers(list);
-    await pushUsers(list);
-    return "";
+    const pushed = await pushUsers(list);
+    return pushed ? "" : "local-only";
   }
 
   function renderMode() {
@@ -281,7 +286,7 @@
     const pass2el = document.getElementById("auth-pass2");
     const pass2 = pass2el ? pass2el.value : "";
     setMsg("جاري التحقق…");
-    await pullUsers();
+    await syncUsers();
     if (isDesignerName(name)) {
       const hash = await hashPassword(pass, DESIGNER_SALT);
       if (hash !== DESIGNER_HASH) { setMsg("كلمة المرور غير صحيحة", false); return; }
@@ -299,9 +304,9 @@
     if (mode === "register") {
       if (pass !== pass2) { setMsg("كلمتا المرور غير متطابقتين", false); return; }
       const err = await addUser(name, pass, "clerk");
-      if (err) { setMsg(err, false); return; }
+      if (err && err !== "local-only") { setMsg(err, false); return; }
       const rec = loadUsers().find((u) => canonUser(u.username) === canonUser(name));
-      setMsg("");
+      setMsg(err === "local-only" ? "الحساب بقي على هذا الجهاز. الربط لم يصل إلى القاعدة بعد." : "", err !== "local-only");
       enter(rec);
       return;
     }
@@ -349,10 +354,9 @@
     modal.classList.remove("hidden");
     const msg = document.getElementById("users-msg");
     if (msg) msg.textContent = "جاري مزامنة الحسابات…";
-    await pullUsers();
-    await pushUsers(loadUsers());
+    const pushed = await syncUsers();
     renderUsers();
-    if (msg) msg.textContent = "حسابات المستخدمين تُزامَن مع القاعدة عندما يكون الربط محفوظاً. كل مستخدم يبقى على سجلاته.";
+    if (msg) msg.textContent = pushed ? "الحسابات مربوطة بالقاعدة وتظهر على كل الأجهزة." : "ما وصلت الحسابات إلى القاعدة. ادخل asma واحفظ الربط السحابي مرة واحدة.";
   }
 
   function bind() {
@@ -418,7 +422,7 @@
       applyChrome();
       unlock();
     }
-    pullUsers().then(() => { renderMode(); });
+    pullUsers().then(function () { return pushUsers(loadUsers()); }).then(function () { renderMode(); });
   }
 
   global.FormSYAuth = {

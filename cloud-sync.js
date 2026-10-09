@@ -141,7 +141,7 @@
   async function rest(method, table, query, body, prefer) {
     const c = cfg();
     if (!c.auto && (!c.url || !c.anon)) return null;
-    const use = { url: c.url, anon: c.anon, table: table || c.table };
+    const use = { url: c.url, anon: c.anon, table: table || c.table, auto: !!c.auto };
     let res = await viaProxy(use, method === "POST" ? "POST" : "GET", query, body, prefer);
     if (!res && use.url && use.anon) {
       try {
@@ -385,7 +385,14 @@
           table: table || "thatea",
         }),
       });
-      if (!res || !res.ok) return { ok: false };
+      if (!res || !res.ok) {
+        let reason = res ? res.statusText : "لا رد";
+        try {
+          const j = await res.json();
+          reason = j.message || reason;
+        } catch (e) {}
+        return { ok: false, reason: reason };
+      }
       return { ok: true };
     } catch (e) {
       return { ok: false };
@@ -459,7 +466,11 @@
         localStorage.setItem("formSY.cloud.anon", parsed.anon);
         localStorage.setItem("formSY.cloud.table", parsed.table);
         const published = await publishConfig(parsed.url, parsed.anon, parsed.table);
-        setMsg(published.ok ? "جاري رفع السجلات وربطها لكل الحسابات…" : "جاري رفع السجلات على هذا الجهاز…");
+        if (!published.ok) {
+          setMsg("المفتاح بقي على هذا المتصفح فقط: " + (published.reason || "الخادم ما حفظ الربط") + ". الأجهزة الأخرى لن ترى الحسابات.", false);
+          return;
+        }
+        setMsg("حُفظ الربط على الخادم لكل الأجهزة. جاري رفع السجلات…", true);
         try {
           const roster = global.FormSYHR && global.FormSYHR.getRoster ? global.FormSYHR.getRoster() : [];
           const up = await pushRows(roster);

@@ -1,10 +1,5 @@
 var crypto = require("crypto");
-var getStore = null;
-try {
-  getStore = require("@netlify/blobs").getStore;
-} catch (e) {
-  getStore = null;
-}
+var blobs = require("@netlify/blobs");
 
 var DESIGNER_SALT = "c4eae2dee84b99e7ae87ded6fbe4ed77";
 var DESIGNER_HASH = "e10410bf51d6981c720c9384446a515c432d04cc2fd43794f9b7f3dd2d853597";
@@ -16,6 +11,7 @@ exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
     return json(405, { message: "POST only" });
   }
+  prepareBlobs(event);
   var req;
   try {
     req = JSON.parse(event.body || "{}");
@@ -26,10 +22,15 @@ exports.handler = async function (event) {
   return proxy(req);
 };
 
-async function blobStore() {
-  if (!getStore) return null;
+function prepareBlobs(event) {
   try {
-    return getStore("sijil-cloud", { consistency: "strong" });
+    if (event && event.blobs && typeof blobs.connectLambda === "function") blobs.connectLambda(event);
+  } catch (e) {}
+}
+
+async function blobStore() {
+  try {
+    return blobs.getStore("sijil-cloud");
   } catch (e) {
     return null;
   }
@@ -42,7 +43,7 @@ function designerOk(user, pass) {
 }
 
 async function saveConfig(req) {
-  if (!designerOk(req.user, req.pass)) return json(403, { message: "المصمم فقط يربط القاعدة" });
+  if (!designerOk(req.user, req.pass)) return json(403, { message: "المصمم فقط يربط القاعدة. اخرج وادخل بحساب asma ثم أعد الحفظ." });
   var base = String(req.url || "").replace(/\/+$/, "");
   if (!/^https:\/\/[a-z0-9]+\.supabase\.co$/i.test(base)) {
     return json(400, { message: "الرابط لازم يكون https://xxxx.supabase.co" });
@@ -53,11 +54,22 @@ async function saveConfig(req) {
   if (table.length > 80) return json(400, { message: "اسم الجدول طويل" });
   var store = await blobStore();
   if (!store) return json(500, { message: "تعذر حفظ الربط على الخادم" });
-  await store.setJSON("config", { url: base, key: key, table: table });
+  try {
+    await store.setJSON("config", { url: base, key: key, table: table });
+  } catch (e) {
+    return json(500, { message: "حفظ الربط فشل: " + (e.message || e) });
+  }
   return json(200, { ok: true });
 }
 
 async function loadConfig() {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+    return {
+      url: String(process.env.SUPABASE_URL).replace(/\/+$/, ""),
+      key: String(process.env.SUPABASE_ANON_KEY),
+      table: process.env.SUPABASE_TABLE || "thatea",
+    };
+  }
   var store = await blobStore();
   if (!store) return null;
   try {
@@ -80,7 +92,7 @@ async function proxy(req) {
     }
   }
   if (!/^https:\/\/[a-z0-9]+\.supabase\.co$/i.test(base)) {
-    return json(503, { message: "القاعدة لم تُربط بعد. يدخل المصمم مرة واحدة من الربط السحابي." });
+    return json(503, { message: "القاعدة لم تُحفظ على الخادم بعد. ادخل asma واحفظ الربط مرة واحدة." });
   }
   if (table.length > 80) return json(400, { message: "اسم الجدول طويل" });
   var method = req.method === "POST" ? "POST" : "GET";
@@ -114,7 +126,7 @@ async function proxy(req) {
 function json(code, obj) {
   return {
     statusCode: code,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "access-control-allow-origin": "*" },
     body: JSON.stringify(obj),
   };
 }
